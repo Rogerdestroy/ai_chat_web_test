@@ -50,6 +50,15 @@
   .card .result{font-size:14px;line-height:1.6}
   .card .result.ok{color:var(--ok)} .card .result.err{color:var(--err)}
   .card a{color:var(--accent)}
+  .card .inline{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .card .grow{flex:1}
+  .card input[type=datetime-local]{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
+  .card input[type=number]{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .card .sub{flex-direction:column;gap:8px;padding:8px 10px;border-left:3px solid var(--accent-soft);margin-left:4px}
+  .card .days{display:flex;flex-wrap:wrap;gap:4px}
+  .card .chip{display:inline-flex;align-items:center;gap:2px;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--text);cursor:pointer}
+  .card .chip:has(input:checked){background:var(--accent-soft);border-color:var(--accent)}
+  .card .summary{font-size:14px;color:var(--accent)}
   form{display:flex;gap:8px}
   textarea{flex:1;resize:none;height:46px;max-height:140px;padding:11px 12px;
     border:1px solid var(--line);border-radius:12px;background:#fff}
@@ -81,7 +90,8 @@
       AI 直接在你的裝置上運算，不連外部伺服器、免費、沒有次數限制。<br>
       第一次使用需下載模型（約 1～2 GB 以上），之後會存在瀏覽器裡，再開就很快。<br>
       切到「📅 加行程」，用一句話說出事件，例如：<br>
-      「下週三下午三點到四點在視聽教室開設備會議，前一天提醒我」<br>
+      「下週三下午三點十五分到四點在視聽教室開會，前一天提醒我」<br>
+      「每週一三五早上七點四十分晨間打掃，到學期結束 1/20」<br>
       AI 會整理好讓你確認，再加入 Google 日曆，時間到由 Google 日曆通知你。
     </div>
   </div>
@@ -150,7 +160,7 @@ function setReady(ready) {
   $("send").disabled = !ready;
   $("input").placeholder = !ready ? "請先載入模型…"
     : mode === "chat" ? "輸入問題，Enter 送出（Shift+Enter 換行）"
-    : "用一句話描述事件，例如：明天早上九點交科展報名表，前一天提醒我";
+    : "用一句話描述事件，例如：每個月5號下午4點30分繳交印量報表，前一天提醒";
 }
 
 /* ---------- 模式切換 ---------- */
@@ -252,6 +262,11 @@ async function chat(text) {
 }
 
 /* ---------- 行程解析 ---------- */
+const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];          // 對應 JS getDay()
+const DAY_ORDER = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+const DAY_NAME = { MO: "一", TU: "二", WE: "三", TH: "四", FR: "五", SA: "六", SU: "日" };
+const FREQ_NAME = { DAILY: "天", WEEKLY: "週", MONTHLY: "個月", YEARLY: "年" };
+
 const EVENT_SCHEMA = {
   type: "object",
   properties: {
@@ -263,15 +278,20 @@ const EVENT_SCHEMA = {
     reminder_minutes: { type: "integer" },
     location: { type: "string" },
     notes: { type: "string" },
+    repeat: { type: "string", enum: ["none", "daily", "weekly", "monthly", "yearly"] },
+    interval: { type: "integer" },
+    weekdays: { type: "array", items: { type: "string", enum: DAY_ORDER } },
+    until: { type: "string" },
+    count: { type: "integer" },
   },
-  required: ["title", "date", "all_day", "start_time", "end_time", "reminder_minutes", "location", "notes"],
+  required: ["title", "date", "all_day", "start_time", "end_time", "reminder_minutes", "location", "notes",
+             "repeat", "interval", "weekdays", "until", "count"],
 };
 
 // 給小模型一張「日期對照表」，它就不用自己推算星期幾
 function dateTable() {
   const now = new Date();
-  const mondayOffset = (now.getDay() + 6) % 7;            // 今天距離本週一幾天
-  const thisMonday = addDays(now, -mondayOffset);
+  const thisMonday = addDays(now, -((now.getDay() + 6) % 7));
   const lines = [];
   for (let i = 0; i < 21; i++) {
     const d = addDays(now, i);
@@ -281,7 +301,7 @@ function dateTable() {
     if (i === 0) tags.push("今天"); if (i === 1) tags.push("明天"); if (i === 2) tags.push("後天");
     tags.push((["本週", "下週", "下下週"][weekIdx] || "") + w);
     if (weekIdx === 0 && (d.getDay() === 0 || d.getDay() === 6)) tags.push("這個週末");
-    lines.push(`${ymd(d)}（${w}）${tags.join("、")}`);
+    lines.push(`${ymd(d)}（${w}，${DAY_CODES[d.getDay()]}）${tags.join("、")}`);
   }
   return lines.join("\n");
 }
@@ -290,38 +310,122 @@ function eventPrompt() {
   const now = new Date();
   return `你負責把使用者的一句話整理成行事曆事件，只輸出 JSON。
 現在時間：${ymd(now)}（星期${WD[now.getDay()]}）${pad(now.getHours())}:${pad(now.getMinutes())}，時區 ${TZ}。
-日期對照表（週一為一週的第一天）：
+日期對照表（週一為一週的第一天，括號內為星期代碼）：
 ${dateTable()}
 
 規則：
-- title：簡短的事件名稱（繁體中文），不要包含日期時間。
-- date：格式 YYYY-MM-DD，請查上面的對照表。沒講日期就用今天；講「幾號」就用最近一個未來的那天。
-- start_time / end_time：24 小時制 HH:MM。「下午三點」=15:00、「晚上七點半」=19:30、「中午」=12:00。
+- title：簡短的事件名稱（繁體中文），不要包含日期、時間、重複規則。
+- date：第一次發生的日期，格式 YYYY-MM-DD，請查對照表。沒講日期就用今天；講「幾號」就用最近一個未來的那天。
+- start_time / end_time：24 小時制 HH:MM，要精確到分鐘。
+  例：「下午三點」=15:00、「下午三點十五分」=15:15、「三點半」=15:30、「三點一刻」=15:15、「三點四十五」=15:45、
+  「早上七點零五分」=07:05、「晚上七點半」=19:30、「中午」=12:00、「中午十二點二十」=12:20。
 - 沒講結束時間，end_time = 開始後 1 小時。
 - 完全沒講時間（只有日期）：all_day = true，start_time 與 end_time 都填 ""。
-- reminder_minutes：提前幾分鐘通知。「前一天」=1440、「前一小時」=60、「半小時前」=30。沒講就填 ${CONFIG.defaultReminderMinutes}。
-- location、notes：沒有就填 ""。`;
+- reminder_minutes：提前幾分鐘通知。「準時」=0、「五分鐘前」=5、「前一小時」=60、「前一天」=1440。沒講就填 ${CONFIG.defaultReminderMinutes}。
+- location、notes：沒有就填 ""。
+- 重複規則（沒提到重複就 repeat="none"、interval=1、weekdays=[]、until=""、count=0）：
+  「每天」→ repeat="daily"；「每週」「每個禮拜」→ "weekly"；「每月」「每個月」→ "monthly"；「每年」→ "yearly"。
+  「每兩週」→ weekly 且 interval=2；「隔天」「每兩天」→ daily 且 interval=2。
+  每週要指定星期幾時填 weekdays（代碼 MO TU WE TH FR SA SU）：
+  「每週一三五」→ ["MO","WE","FR"]；「平日」「週一到週五」→ ["MO","TU","WE","TH","FR"]；「每個週末」→ ["SA","SU"]。
+  此時 date 填「今天或之後，第一個符合的日子」。
+  「每個月5號」→ monthly，date 填最近一個未來的 5 號。
+  until：「到12月底」→ 該月最後一天；「到1/20」→ 最近一個未來的 1 月 20 日（可能是明年）。格式 YYYY-MM-DD；沒講就填 ""。
+  count：「共10次」「十週」→ 10；沒講就填 0。`;
 }
 
+const isDateStr = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || "") && !isNaN(new Date(s + "T00:00:00"));
+const isTimeStr = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s || "");
+
 function normalize(ev, text) {
-  const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || "") && !isNaN(new Date(s + "T00:00:00"));
-  const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s || "");
-  const fixTime = (s) => { const m = /^(\d{1,2}):(\d{2})/.exec(s || ""); return m ? `${pad(+m[1])}:${m[2]}` : s; };
-  const today = ymd(new Date());
+  const fixTime = (s) => { const m = /^(\d{1,2})[:：](\d{2})/.exec(s || ""); return m ? `${pad(+m[1])}:${m[2]}` : s; };
   const e = {
     title: (ev?.title || "").trim() || text.slice(0, 30),
-    date: isDate(ev?.date) ? ev.date : today,
+    date: isDateStr(ev?.date) ? ev.date : ymd(new Date()),
     allDay: !!ev?.all_day,
-    start: fixTime(ev?.start_time), end: fixTime(ev?.end_time),
+    start: fixTime(ev?.start_time), end: fixTime(ev?.end_time), endDate: "",
     reminder: Number.isFinite(+ev?.reminder_minutes) && +ev.reminder_minutes >= 0 ? Math.round(+ev.reminder_minutes) : CONFIG.defaultReminderMinutes,
     location: (ev?.location || "").trim(), notes: (ev?.notes || "").trim(),
   };
   if (!e.allDay) {
-    if (!isTime(e.start)) { e.allDay = !ev; e.start = "09:00"; }
-    if (!isTime(e.end) || e.end <= e.start) e.end = addMinutes(e.date, e.start, 60).time;
+    if (!isTimeStr(e.start)) { e.allDay = !ev; e.start = "09:00"; }
+    if (!isTimeStr(e.end) || e.end <= e.start) {
+      const x = addMinutes(e.date, e.start, 60); e.end = x.time; e.endDate = x.date;
+    }
   }
-  if (e.allDay) { e.start = e.start && isTime(e.start) ? e.start : "09:00"; e.end = e.end && isTime(e.end) ? e.end : "10:00"; }
+  if (e.allDay) { e.start = isTimeStr(e.start) ? e.start : "09:00"; e.end = isTimeStr(e.end) ? e.end : "10:00"; }
+  e.endDate = e.endDate || e.date;
+
+  // 重複規則
+  const freq = { daily: "DAILY", weekly: "WEEKLY", monthly: "MONTHLY", yearly: "YEARLY" }[ev?.repeat] || "NONE";
+  let byday = Array.isArray(ev?.weekdays) ? [...new Set(ev.weekdays.filter((d) => DAY_ORDER.includes(d)))] : [];
+  if (freq !== "WEEKLY") byday = [];
+  e.rec = {
+    freq,
+    interval: Math.min(Math.max(parseInt(ev?.interval) || 1, 1), 99),
+    byday,
+    until: fixUntil(ev?.until, e.date),
+    count: Math.min(Math.max(parseInt(ev?.count) || 0, 0), 999),
+  };
+  if (e.rec.until) e.rec.count = 0;
+  alignStart(e);
   return e;
+}
+
+// 結束日早於開始日時（例如只講「到 1/20」被填成今年），自動改成下一個未來的同月同日
+function fixUntil(u, start) {
+  if (!isDateStr(u)) return "";
+  let y = +u.slice(0, 4);
+  while (`${y}${u.slice(4)}` < start && y < +start.slice(0, 4) + 2) y++;
+  const v = `${y}${u.slice(4)}`;
+  return v >= start && isDateStr(v) ? v : "";
+}
+
+// 每週指定星期幾時，把第一次的日期移到第一個符合的日子
+function alignStart(e) {
+  const r = e.rec;
+  if (r.freq !== "WEEKLY" || !r.byday.length) return;
+  const d0 = new Date(e.date + "T00:00:00");
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(d0, i);
+    if (r.byday.includes(DAY_CODES[d.getDay()])) {
+      const shift = i;
+      e.date = ymd(d);
+      e.endDate = ymd(addDays(new Date(e.endDate + "T00:00:00"), shift));
+      return;
+    }
+  }
+}
+
+// RRULE 字串；forIcs=true 時 UNTIL 用當地時間（配合 .ics 的浮動時間）
+function rrule(ev, forIcs = false) {
+  const r = ev.rec;
+  if (!r || r.freq === "NONE") return null;
+  const parts = [`FREQ=${r.freq}`];
+  if (r.interval > 1) parts.push(`INTERVAL=${r.interval}`);
+  if (r.freq === "WEEKLY" && r.byday.length) parts.push(`BYDAY=${DAY_ORDER.filter((d) => r.byday.includes(d)).join(",")}`);
+  if (r.until) {
+    if (ev.allDay) parts.push(`UNTIL=${compact(r.until)}`);
+    else if (forIcs) parts.push(`UNTIL=${compact(r.until)}T235959`);
+    else parts.push(`UNTIL=${new Date(r.until + "T23:59:59").toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "")}`);
+  } else if (r.count > 0) parts.push(`COUNT=${r.count}`);
+  return "RRULE:" + parts.join(";");
+}
+
+function describeRec(ev) {
+  const r = ev.rec;
+  if (!r || r.freq === "NONE") return "不重複";
+  let s = "每" + (r.interval > 1 ? r.interval : "") + FREQ_NAME[r.freq];
+  if (r.freq === "WEEKLY" && r.byday.length) {
+    const days = DAY_ORDER.filter((d) => r.byday.includes(d));
+    const key = days.join(",");
+    s += key === "MO,TU,WE,TH,FR" ? "的平日" : key === "SA,SU" ? "的週末" : "的星期" + days.map((d) => DAY_NAME[d]).join("、");
+  }
+  if (r.freq === "MONTHLY") s += `的 ${+ev.date.slice(8)} 號`;
+  if (r.freq === "YEARLY") s += `的 ${+ev.date.slice(5, 7)} 月 ${+ev.date.slice(8)} 日`;
+  if (r.until) s += `，到 ${r.until} 為止`;
+  else if (r.count > 0) s += `，共 ${r.count} 次`;
+  return s;
 }
 
 async function parseEvent(text) {
@@ -331,7 +435,7 @@ async function parseEvent(text) {
   try {
     const r = await engine.chat.completions.create({
       messages: [{ role: "system", content: eventPrompt() }, { role: "user", content: text }],
-      temperature: 0, max_tokens: 300, ...thinkOff(),
+      temperature: 0, max_tokens: 400, ...thinkOff(),
       response_format: { type: "json_object", schema: JSON.stringify(EVENT_SCHEMA) },
     });
     ev = JSON.parse(stripThink(r.choices[0].message.content || "{}"));
@@ -347,50 +451,133 @@ const REMINDERS = [[0, "準時"], [5, "5 分鐘前"], [10, "10 分鐘前"], [15,
 
 function showEventCard(e, failed) {
   $("hint")?.remove();
+  const dt = (type, value) => el("input", { type, value, step: 60 });
   const f = {
     title: el("input", { type: "text", value: e.title }),
-    date: el("input", { type: "date", value: e.date }),
     allDay: el("input", { type: "checkbox", checked: e.allDay }),
-    start: el("input", { type: "time", value: e.start }),
-    end: el("input", { type: "time", value: e.end }),
+    start: dt("datetime-local", `${e.date}T${e.start}`),
+    end: dt("datetime-local", `${e.endDate}T${e.end}`),
+    startD: dt("date", e.date),
+    endD: dt("date", e.endDate),
     reminder: el("select"),
+    remCustom: el("input", { type: "number", min: 0, max: 40320, step: 1, value: e.reminder, style: "max-width:90px" }),
+    freq: el("select"),
+    interval: el("input", { type: "number", min: 1, max: 99, value: e.rec.interval, style: "max-width:64px" }),
+    endType: el("select"),
+    until: dt("date", e.rec.until || ""),
+    count: el("input", { type: "number", min: 1, max: 999, value: e.rec.count || 10, style: "max-width:76px" }),
     location: el("input", { type: "text", value: e.location, placeholder: "（選填）" }),
     notes: el("input", { type: "text", value: e.notes, placeholder: "（選填）" }),
   };
-  const opts = REMINDERS.some(([m]) => m === e.reminder) ? REMINDERS : [...REMINDERS, [e.reminder, `${e.reminder} 分鐘前`]].sort((a, b) => a[0] - b[0]);
-  for (const [m, t] of opts) f.reminder.add(new Option(t, m));
-  f.reminder.value = String(e.reminder);
-  const times = el("div", { className: "times" }, f.start, "到", f.end);
-  const syncAllDay = () => (times.style.display = f.allDay.checked ? "none" : "flex");
-  f.allDay.onchange = syncAllDay; syncAllDay();
-  f.start.onchange = () => { if (f.end.value <= f.start.value) f.end.value = addMinutes(f.date.value, f.start.value, 60).time; };
+  // 提醒：預設選項＋自訂分鐘
+  for (const [m, t] of REMINDERS) f.reminder.add(new Option(t, m));
+  f.reminder.add(new Option("自訂…", "custom"));
+  f.reminder.value = REMINDERS.some(([m]) => m === e.reminder) ? String(e.reminder) : "custom";
+  const remWrap = el("span", { className: "inline" }, f.remCustom, "分鐘前");
+  const syncRem = () => (remWrap.style.display = f.reminder.value === "custom" ? "inline-flex" : "none");
+  f.reminder.onchange = syncRem; syncRem();
+
+  // 重複
+  for (const [v, t] of [["NONE", "不重複"], ["DAILY", "每天"], ["WEEKLY", "每週"], ["MONTHLY", "每月"], ["YEARLY", "每年"]]) f.freq.add(new Option(t, v));
+  f.freq.value = e.rec.freq;
+  for (const [v, t] of [["never", "永不結束"], ["until", "到某日為止"], ["count", "重複幾次"]]) f.endType.add(new Option(t, v));
+  f.endType.value = e.rec.until ? "until" : e.rec.count > 0 ? "count" : "never";
+  const unitEl = el("span");
+  const dayBoxes = DAY_ORDER.map((d) => {
+    const cb = el("input", { type: "checkbox", value: d, checked: e.rec.byday.includes(d) });
+    return el("label", { className: "chip" }, cb, DAY_NAME[d]);
+  });
+  const dayRow = el("div", { className: "days" }, ...dayBoxes);
+  const intervalRow = el("span", { className: "inline" }, "每", f.interval, unitEl);
+  const endRow = el("span", { className: "inline" }, f.endType, f.until, f.count, el("span", { textContent: "次" }));
+  const recSummary = el("div", { className: "summary" });
+
+  const startRow = el("span", { className: "inline grow" }, f.start, f.startD);
+  const endRowT = el("span", { className: "inline grow" }, f.end, f.endD);
 
   const result = el("div", { className: "result" });
   const addBtn = el("button", { type: "button", className: "okbtn", textContent: CONFIG.googleClientId ? "✅ 加入 Google 日曆" : "📅 帶入 Google 日曆" });
   const icsBtn = el("button", { type: "button", className: "ghost", textContent: "下載 .ics" });
   const lab = (name, ...kids) => el("label", {}, el("span", { textContent: name }), ...kids);
+  const repDetail = el("div", { className: "sub" }, lab("間隔", intervalRow), lab("星期", dayRow), lab("結束", endRow));
 
   const card = el("div", { className: "card" },
     el("h3", { textContent: failed ? "⚠️ 沒能完整理解，請手動確認：" : "請確認行程內容：" }),
-    lab("事件", f.title), lab("日期", f.date), lab("全天", f.allDay), lab("時間", times),
-    lab("提醒", f.reminder), lab("地點", f.location), lab("備註", f.notes),
+    lab("事件", f.title), lab("全天", f.allDay), lab("開始", startRow), lab("結束", endRowT),
+    lab("提醒", f.reminder, remWrap), lab("重複", f.freq), repDetail, recSummary,
+    lab("地點", f.location), lab("備註", f.notes),
     el("div", { className: "row" }, addBtn, icsBtn), result);
   log.appendChild(card); log.scrollTop = log.scrollHeight;
 
-  const read = () => ({
-    title: f.title.value.trim() || "（未命名事件）", date: f.date.value, allDay: f.allDay.checked,
-    start: f.start.value, end: f.end.value, reminder: +f.reminder.value,
-    location: f.location.value.trim(), notes: f.notes.value.trim(),
-  });
+  const read = () => {
+    const allDay = f.allDay.checked;
+    const [sd, st] = allDay ? [f.startD.value, "09:00"] : (f.start.value || "T").split("T");
+    const [ed, et] = allDay ? [f.endD.value, "10:00"] : (f.end.value || "T").split("T");
+    const freq = f.freq.value;
+    const ev = {
+      title: f.title.value.trim() || "（未命名事件）", allDay,
+      date: sd || "", start: (st || "").slice(0, 5), endDate: ed || "", end: (et || "").slice(0, 5),
+      reminder: f.reminder.value === "custom" ? Math.max(0, Math.round(+f.remCustom.value || 0)) : +f.reminder.value,
+      location: f.location.value.trim(), notes: f.notes.value.trim(),
+      rec: {
+        freq,
+        interval: Math.min(Math.max(parseInt(f.interval.value) || 1, 1), 99),
+        byday: freq === "WEEKLY" ? dayBoxes.map((l) => l.firstChild).filter((c) => c.checked).map((c) => c.value) : [],
+        until: freq !== "NONE" && f.endType.value === "until" ? f.until.value : "",
+        count: freq !== "NONE" && f.endType.value === "count" ? Math.max(1, parseInt(f.count.value) || 1) : 0,
+      },
+    };
+    return ev;
+  };
+  const sync = () => {
+    const allDay = f.allDay.checked;
+    f.start.style.display = f.end.style.display = allDay ? "none" : "";
+    f.startD.style.display = f.endD.style.display = allDay ? "" : "none";
+    const freq = f.freq.value;
+    repDetail.style.display = freq === "NONE" ? "none" : "flex";
+    dayRow.parentElement.style.display = freq === "WEEKLY" ? "flex" : "none";
+    unitEl.textContent = FREQ_NAME[freq] || "";
+    f.until.style.display = f.endType.value === "until" ? "" : "none";
+    f.count.style.display = f.count.nextSibling.style.display = f.endType.value === "count" ? "" : "none";
+    const ev = read();
+    recSummary.textContent = freq === "NONE" ? "" : "🔁 " + describeRec(ev);
+  };
+  // 開始時間改了，結束時間跟著平移（維持原本長度）
+  let lastStart = f.start.value;
+  f.start.onchange = () => {
+    const a = new Date(lastStart), b = new Date(f.start.value), c = new Date(f.end.value);
+    if (!isNaN(a) && !isNaN(b) && !isNaN(c)) {
+      const n = new Date(c.getTime() + (b - a));
+      f.end.value = `${ymd(n)}T${pad(n.getHours())}:${pad(n.getMinutes())}`;
+    }
+    lastStart = f.start.value; sync();
+  };
+  f.startD.onchange = () => { if (f.endD.value < f.startD.value) f.endD.value = f.startD.value; sync(); };
+  for (const x of [f.allDay, f.end, f.endD, f.freq, f.interval, f.endType, f.until, f.count, ...dayBoxes.map((l) => l.firstChild)])
+    x.addEventListener("input", sync), x.addEventListener("change", sync);
+  sync();
+
   const check = (ev) => {
-    if (!ev.date) return "請填日期";
-    if (!ev.allDay && (!ev.start || !ev.end)) return "請填開始與結束時間";
-    if (!ev.allDay && ev.end <= ev.start) return "結束時間要晚於開始時間";
+    if (!isDateStr(ev.date) || !isDateStr(ev.endDate)) return "請填開始與結束日期";
+    if (!ev.allDay && (!isTimeStr(ev.start) || !isTimeStr(ev.end))) return "請填開始與結束時間（時:分）";
+    if (ev.allDay ? ev.endDate < ev.date : `${ev.endDate}T${ev.end}` <= `${ev.date}T${ev.start}`) return "結束要晚於開始";
+    if (ev.rec.freq === "WEEKLY" && !ev.rec.byday.length) ev.rec.byday = [DAY_CODES[new Date(ev.date + "T00:00:00").getDay()]];
+    if (ev.rec.until && ev.rec.until < ev.date) return "重複的結束日要在開始日之後";
+    if (f.endType.value === "until" && ev.rec.freq !== "NONE" && !ev.rec.until) return "請選重複的結束日";
     return null;
   };
-  addBtn.onclick = () => {
+  const prepare = () => {
     const ev = read(), bad = check(ev);
-    if (bad) { result.className = "result err"; result.textContent = bad; return; }
+    if (bad) { result.className = "result err"; result.textContent = bad; return null; }
+    const before = ev.date; alignStart(ev);
+    if (ev.date !== before) {   // 第一次日期被調整到符合的星期，同步回畫面
+      f.start.value = `${ev.date}T${ev.start}`; f.end.value = `${ev.endDate}T${ev.end}`;
+      f.startD.value = ev.date; f.endD.value = ev.endDate; lastStart = f.start.value;
+    }
+    return ev;
+  };
+  addBtn.onclick = () => {
+    const ev = prepare(); if (!ev) return;
     if (CONFIG.googleClientId) {
       addBtn.disabled = true; result.className = "result"; result.textContent = "寫入 Google 日曆中…";
       insertEvent(ev).then((link) => {
@@ -409,18 +596,17 @@ function showEventCard(e, failed) {
     }
   };
   icsBtn.onclick = () => {
-    const ev = read(), bad = check(ev);
-    if (bad) { result.className = "result err"; result.textContent = bad; return; }
+    const ev = prepare(); if (!ev) return;
     downloadIcs(ev);
-    result.className = "result"; result.textContent = "已下載 .ics，打開它就能加入手機或電腦的行事曆（含提醒設定）。";
+    result.className = "result"; result.textContent = "已下載 .ics，打開它就能加入手機或電腦的行事曆（含提醒與重複設定）。";
   };
 }
 
 /* ---------- 輸出：Google 日曆連結 / .ics ---------- */
-const compact = (date, time) => date.replace(/-/g, "") + (time ? "T" + time.replace(":", "") + "00" : "");
+function compact(date, time) { return date.replace(/-/g, "") + (time ? "T" + time.replace(":", "") + "00" : ""); }
 function endDateTime(ev) {
-  if (ev.allDay) return { date: ymd(addDays(new Date(ev.date + "T00:00:00"), 1)) };
-  return { date: ev.date, time: ev.end };
+  if (ev.allDay) return { date: ymd(addDays(new Date(ev.endDate + "T00:00:00"), 1)) };   // 全天活動的結束日是「隔天」(不含)
+  return { date: ev.endDate, time: ev.end };
 }
 function templateUrl(ev) {
   const end = endDateTime(ev);
@@ -429,6 +615,8 @@ function templateUrl(ev) {
   const p = new URLSearchParams({ action: "TEMPLATE", text: ev.title, dates, ctz: TZ });
   if (ev.location) p.set("location", ev.location);
   if (ev.notes) p.set("details", ev.notes);
+  const rr = rrule(ev);
+  if (rr) p.set("recur", rr);
   return "https://calendar.google.com/calendar/render?" + p.toString();
 }
 function downloadIcs(ev) {
@@ -441,6 +629,7 @@ function downloadIcs(ev) {
     "BEGIN:VEVENT", `UID:${now.getTime()}-${Math.random().toString(36).slice(2)}@ai-chat`, `DTSTAMP:${stamp}`,
     ev.allDay ? `DTSTART;VALUE=DATE:${compact(ev.date)}` : `DTSTART:${compact(ev.date, ev.start)}`,
     ev.allDay ? `DTEND;VALUE=DATE:${compact(end.date)}` : `DTEND:${compact(end.date, end.time)}`,
+    rrule(ev, true),
     `SUMMARY:${esc(ev.title)}`,
     ev.location && `LOCATION:${esc(ev.location)}`,
     ev.notes && `DESCRIPTION:${esc(ev.notes)}`,
@@ -500,6 +689,8 @@ async function insertEvent(ev) {
     end: ev.allDay ? { date: end.date } : { dateTime: `${end.date}T${end.time}:00`, timeZone: TZ },
     reminders: { useDefault: false, overrides: [{ method: "popup", minutes: ev.reminder }] },
   };
+  const rr = rrule(ev);
+  if (rr) body.recurrence = [rr];
   const send = (token) => fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
     method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
     body: JSON.stringify(body),
