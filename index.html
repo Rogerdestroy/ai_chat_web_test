@@ -274,6 +274,12 @@ const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platf
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
 let QUANT = "q4f16_1";
 const RECOMMENDED = IS_MOBILE ? "Qwen3-0.6B" : "Qwen3-1.7B";
+// 省記憶體模式：手機一律開啟；電腦若上次執行到一半頁面被重新整理（多半是記憶體不足）也自動開啟
+const CRASHED = recall("ys-running") === "1";
+const LOW_MEM = IS_MOBILE || CRASHED || recall("ys-lowmem") === "1";
+if (CRASHED) store("ys-lowmem", "1");
+const CHAT_OPTS = LOW_MEM ? { context_window_size: 2048 } : undefined;   // 預設 4096，減半可省下一半的對話記憶體
+const markRunning = (on) => store("ys-running", on ? "1" : "0");
 function applyQuant() {
   for (const m of CONFIG.models) {
     m.id = `${m.base}-${QUANT}-MLC`;
@@ -352,6 +358,7 @@ async function checkGPU() {
   setStatus(cachedSet.size
     ? `已下載的模型會標示「✓ 已下載」，按「載入」即可開始${last && cachedSet.has(last) ? `（上次使用：${modelName(last)}）` : ""}。`
     : "請在上方選一個模型按「下載」（第一次需要下載，之後就不用）。");
+  if (CRASHED) { markRunning(false); setStatus("上次執行時記憶體不足、頁面被重新整理，已自動改用省記憶體模式。請重新載入模型。", "err"); }
 })();
 
 /* ---------- 下載／載入畫面 ---------- */
@@ -395,15 +402,17 @@ async function loadModel(id) {
   setStatus(cachedSet.has(id) ? "從這台電腦讀取模型中，請勿關閉此頁…" : "下載中，請勿關閉此頁…（已下載完成的部分會保留）");
   try {
     const onProgress = (p) => showProgress(id, p);
-    if (engine) { engine.setInitProgressCallback?.(onProgress); await engine.reload(id); }
-    else engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress });
+    markRunning(true);
+    if (engine) { engine.setInitProgressCallback?.(onProgress); await engine.reload(id, CHAT_OPTS); }
+    else engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress }, CHAT_OPTS);
+    markRunning(false);
     loadedId = id; store("ys-webllm-model", id);
     showProgress(id, { progress: 1, text: "Finish loading" });
     setStatus(`✓ ${modelName(id)} 已就緒，可以開始使用。`);
     try { await navigator.storage.persist?.(); } catch {}   // 請瀏覽器不要自動清掉模型
     setTimeout(() => ($("dl").hidden = true), 1200);
   } catch (e) {
-    console.error(e);
+    console.error(e); markRunning(false);
     const msg = String(e?.message || e);
     $("dl").hidden = true; togglePanel(true);
     setStatus(/memory|OOM|buffer|limit|device lost/i.test(msg)
@@ -423,19 +432,21 @@ async function chat(text) {
   let raw = "";
   try {
     const stream = await engine.chat.completions.create({
-      messages: [{ role: "system", content: CONFIG.systemPrompt }, ...history.slice(-CONFIG.historyLimit)],
-      stream: true, temperature: 0.7, ...thinkOff(),
+      messages: [{ role: "system", content: CONFIG.systemPrompt }, ...history.slice(-(LOW_MEM ? 4 : CONFIG.historyLimit))],
+      stream: true, temperature: 0.7, max_tokens: LOW_MEM ? 512 : 1024, ...thinkOff(),
     });
+    markRunning(true);
     for await (const chunk of stream) {
       raw += chunk.choices[0]?.delta?.content || "";
       box.textContent = stripThink(raw) || "…";
       log.scrollTop = log.scrollHeight;
     }
+    markRunning(false);
     const reply = stripThink(raw).trim();
     box.textContent = reply || "（沒有產生回答，請換個問法）";
     history.push({ role: "assistant", content: reply });
   } catch (e) {
-    console.error(e);
+    console.error(e); markRunning(false);
     box.textContent = "發生錯誤：" + (e?.message || e) + "\n可以按「清除」重新開始對話。";
     history.pop();
   }
@@ -473,7 +484,7 @@ function dateTable() {
   const now = new Date();
   const thisMonday = addDays(now, -((now.getDay() + 6) % 7));
   const lines = [];
-  for (let i = 0; i < 21; i++) {
+  for (let i = 0; i < (LOW_MEM ? 14 : 21); i++) {
     const d = addDays(now, i);
     const weekIdx = Math.floor((d - thisMonday) / 864e5 / 7 + 1e-9);
     const w = WD[d.getDay()];
@@ -608,19 +619,33 @@ function describeRec(ev) {
   return s;
 }
 
+// 從模型回覆中抓出 JSON（容忍前後多餘文字、```json 標記、結尾多餘逗號）
+function extractJson(t) {
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  const body = t.slice(a, b + 1);
+  try { return JSON.parse(body); } catch {}
+  try { return JSON.parse(body.replace(/,\s*([}\]])/g, "$1")); } catch {}
+  return null;
+}
+
 async function parseEvent(text) {
   addMsg("user", text);
   const box = addMsg("ai", "整理行程中…");
   let ev = null;
   try {
+    markRunning(true);
+    // 省記憶體模式不用「格式約束」（會額外佔記憶體），改成給範例、再從回覆中抓出 JSON
+    const prompt = eventPrompt() + (LOW_MEM ? `\n\n只輸出一行 JSON，不要其他文字。格式範例：\n{"title":"開會","date":"2026-11-25","all_day":false,"start_time":"15:15","end_time":"16:00","reminder_minutes":1440,"location":"視聽教室","notes":"","repeat":"none","interval":1,"weekdays":[],"until":"","count":0}` : "");
     const r = await engine.chat.completions.create({
-      messages: [{ role: "system", content: eventPrompt() }, { role: "user", content: text }],
-      temperature: 0, max_tokens: 400, ...thinkOff(),
-      response_format: { type: "json_object", schema: JSON.stringify(EVENT_SCHEMA) },
+      messages: [{ role: "system", content: prompt }, { role: "user", content: text }],
+      temperature: 0, max_tokens: 300, ...thinkOff(),
+      ...(LOW_MEM ? {} : { response_format: { type: "json_object", schema: JSON.stringify(EVENT_SCHEMA) } }),
     });
-    ev = JSON.parse(stripThink(r.choices[0].message.content || "{}"));
+    markRunning(false);
+    ev = extractJson(stripThink(r.choices[0].message.content || ""));
     await engine.resetChat();          // 行程解析不留記憶，避免影響聊天
-  } catch (e) { console.error(e); }
+  } catch (e) { console.error(e); markRunning(false); }
   box.remove();
   showEventCard(normalize(ev, text), !ev);
 }
