@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 小助手（本機運算・免費無限制）</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1f2329; --sub:#6b7280;
+    --accent:#2563eb; --accent-soft:#e8f0fe; --ai:#f2f4f7; --warn:#b45309; --err:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);
+    font-family:-apple-system,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif;
+    display:flex;justify-content:center}
+  .app{width:100%;max-width:760px;height:100%;display:flex;flex-direction:column;padding:12px;gap:10px}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--card);
+    border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+  header h1{font-size:16px;margin:0 auto 0 0;white-space:nowrap}
+  select,button,textarea{font:inherit}
+  select{padding:7px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;max-width:100%}
+  button{padding:7px 14px;border:0;border-radius:9px;background:var(--accent);color:#fff;cursor:pointer}
+  button.ghost{background:transparent;color:var(--sub);border:1px solid var(--line)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  #status{font-size:13px;color:var(--sub);padding:0 4px;min-height:18px}
+  #status.warn{color:var(--warn)} #status.err{color:var(--err)}
+  .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;display:none}
+  .bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  #log{flex:1;overflow-y:auto;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:85%;padding:9px 13px;border-radius:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .user{align-self:flex-end;background:var(--accent-soft)}
+  .ai{align-self:flex-start;background:var(--ai)}
+  .hint{color:var(--sub);font-size:14px;text-align:center;margin:auto;line-height:1.8}
+  form{display:flex;gap:8px}
+  textarea{flex:1;resize:none;height:46px;max-height:140px;padding:11px 12px;
+    border:1px solid var(--line);border-radius:12px;background:#fff}
+  textarea:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>🤖 AI 小助手</h1>
+    <select id="model" aria-label="選擇模型"></select>
+    <button id="load">載入模型</button>
+    <button id="clear" class="ghost" title="清除對話">清除</button>
+  </header>
+
+  <div class="bar" id="bar"><i></i></div>
+  <div id="status">檢查瀏覽器中…</div>
+
+  <div id="log">
+    <div class="hint" id="hint">
+      AI 直接在你的裝置上運算，不連外部伺服器、免費、沒有次數限制。<br>
+      第一次使用需下載模型（約 1～2 GB 以上），之後會存在瀏覽器裡，再開就很快。<br>
+      建議用電腦版 Chrome 或 Edge，並連 Wi-Fi 下載。
+    </div>
+  </div>
+
+  <form id="form">
+    <textarea id="input" placeholder="請先載入模型…" disabled></textarea>
+    <button id="send" disabled>送出</button>
+  </form>
+</div>
+
+<script type="module">
+/* ===== 可自行修改的設定 ===== */
+const CONFIG = {
+  // 系統提示：決定 AI 的角色與語氣
+  systemPrompt: "你是一位友善、有耐心的助手。一律使用繁體中文（台灣用語）回答，回答簡潔清楚。",
+  // 每次送給模型的最近對話則數（模型記憶上限約 4096 tokens，太多會出錯）
+  historyLimit: 8,
+  // 可選模型（第一個為預設）
+  models: [
+    // 括號內為所需顯示記憶體（WebLLM 官方設定值）
+    { id: "Qwen3-1.7B-q4f16_1-MLC",            label: "Qwen3 1.7B（推薦・需 2.0 GB）" },
+    { id: "Qwen3-4B-q4f16_1-MLC",              label: "Qwen3 4B（較聰明・需 3.4 GB）" },
+    { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B（較舊電腦・需 1.6 GB）" },
+    { id: "Qwen3.5-0.8B-q4f16_1-MLC",          label: "Qwen3.5 0.8B（最輕量・需 1.6 GB）" },
+  ],
+};
+/* ========================== */
+
+const WEBLLM_URL = "https://esm.run/@mlc-ai/web-llm@0.2.89";
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status"), bar = $("bar"), log = $("log");
+let webllm, engine = null, loadedId = null, busy = false;
+const history = [];
+
+function setStatus(text, cls = "") { statusEl.textContent = text; statusEl.className = cls; }
+function store(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function recall(k) { try { return localStorage.getItem(k); } catch { return null; } }
+
+function addMsg(role, text) {
+  $("hint")?.remove();
+  const d = document.createElement("div");
+  d.className = "msg " + role;
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+const stripThink = (s) => s.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trimStart();
+
+function setReady(ready) {
+  $("input").disabled = !ready;
+  $("send").disabled = !ready;
+  $("input").placeholder = ready ? "輸入問題，Enter 送出（Shift+Enter 換行）" : "請先載入模型…";
+}
+
+// 1) 填入模型清單
+const sel = $("model");
+for (const m of CONFIG.models) sel.add(new Option(m.label, m.id));
+const saved = recall("ys-webllm-model");
+if (saved && CONFIG.models.some(m => m.id === saved)) sel.value = saved;
+
+// 2) 檢查 WebGPU
+async function checkGPU() {
+  if (!("gpu" in navigator)) return "這個瀏覽器不支援 WebGPU，請改用電腦版 Chrome 或 Edge（版本 113 以上）。";
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return "找不到可用的顯示晶片（WebGPU adapter），請確認瀏覽器已開啟硬體加速。";
+  } catch { return "WebGPU 初始化失敗，請更新瀏覽器或顯示卡驅動程式。"; }
+  return null;
+}
+
+async function markCached() {
+  for (const opt of sel.options) {
+    try {
+      if (await webllm.hasModelInCache(opt.value) && !opt.text.includes("✓"))
+        opt.text = "✓ " + opt.text + "・已下載";
+    } catch {}
+  }
+}
+
+(async () => {
+  const gpuErr = await checkGPU();
+  if (gpuErr) { setStatus(gpuErr, "err"); $("load").disabled = true; return; }
+  try {
+    webllm = await import(WEBLLM_URL);
+  } catch {
+    setStatus("無法載入 WebLLM 程式庫，請檢查網路連線後重新整理。", "err");
+    $("load").disabled = true; return;
+  }
+  await markCached();
+  const cached = await webllm.hasModelInCache(sel.value).catch(() => false);
+  setStatus(cached ? "模型已在瀏覽器中，按「載入模型」即可開始。" : "選好模型後按「載入模型」（第一次需要下載）。");
+})();
+
+// 3) 載入模型
+$("load").onclick = async () => {
+  if (busy) return;
+  const id = sel.value;
+  if (id === loadedId) { setStatus("這個模型已經載入了，可以開始聊天。"); return; }
+  busy = true; setReady(false);
+  $("load").disabled = true; sel.disabled = true;
+  bar.style.display = "block"; bar.firstElementChild.style.width = "0";
+  setStatus("準備中…");
+  try {
+    const onProgress = (p) => {
+      bar.firstElementChild.style.width = Math.round((p.progress || 0) * 100) + "%";
+      setStatus(p.text || "載入中…");
+    };
+    if (engine) { await engine.reload(id); }
+    else { engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress }); }
+    loadedId = id; store("ys-webllm-model", id);
+    setStatus("✅ 模型已就緒，開始聊天吧！");
+    setReady(true); $("input").focus();
+    markCached();
+  } catch (e) {
+    console.error(e);
+    const msg = String(e?.message || e);
+    setStatus(/memory|OOM|buffer|limit/i.test(msg)
+      ? "記憶體不足，請改選較小的模型（例如 Qwen3.5 0.8B），或關閉其他分頁後再試。"
+      : "載入失敗：" + msg, "err");
+  } finally {
+    busy = false; $("load").disabled = false; sel.disabled = false;
+    setTimeout(() => (bar.style.display = "none"), 600);
+  }
+};
+
+// 4) 送出問題（串流顯示）
+async function send() {
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text || !engine || busy) return;
+  input.value = ""; busy = true; setReady(false);
+  addMsg("user", text);
+  history.push({ role: "user", content: text });
+  const box = addMsg("ai", "…");
+  let raw = "";
+  try {
+    const stream = await engine.chat.completions.create({
+      messages: [{ role: "system", content: CONFIG.systemPrompt }, ...history.slice(-CONFIG.historyLimit)],
+      stream: true,
+      temperature: 0.7,
+      // Qwen3 系列：關閉「思考」模式，回答更快（其他模型不加，以免干擾）
+      ...(/^Qwen3/.test(loadedId) ? { extra_body: { enable_thinking: false } } : {}),
+    });
+    for await (const chunk of stream) {
+      raw += chunk.choices[0]?.delta?.content || "";
+      box.textContent = stripThink(raw) || "…";
+      log.scrollTop = log.scrollHeight;
+    }
+    const reply = stripThink(raw).trim();
+    box.textContent = reply || "（沒有產生回答，請換個問法）";
+    history.push({ role: "assistant", content: reply });
+  } catch (e) {
+    console.error(e);
+    box.textContent = "⚠️ 發生錯誤：" + (e?.message || e) + "\n可以按「清除」重新開始對話。";
+    history.pop();
+  } finally {
+    busy = false; setReady(true); input.focus();
+  }
+}
+$("form").onsubmit = (e) => { e.preventDefault(); send(); };
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+
+// 5) 清除對話
+$("clear").onclick = async () => {
+  if (busy) return;
+  history.length = 0;
+  log.innerHTML = "";
+  try { await engine?.resetChat(); } catch {}
+  setStatus(engine ? "對話已清除。" : statusEl.textContent);
+};
+</script>
+</body>
+</html>
