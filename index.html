@@ -110,6 +110,10 @@
     .card label{flex-wrap:wrap}
     .card label>span{width:44px}
     .card .grow,.card .grow input{width:100%}
+    .card .inline{flex:1;min-width:0;flex-wrap:nowrap}
+    .card .inline select{flex:1 1 auto;min-width:0}
+    .card .sub label{flex-wrap:nowrap}
+    .card .days{flex:1}
     .dl-pct{font-size:26px}
     #gcal{margin-left:0}
     /* iOS 輸入框小於 16px 會自動放大畫面 */
@@ -716,6 +720,7 @@ function showEventCard(e, failed, manual = false) {
     f.until.style.display = f.endType.value === "until" ? "" : "none";
     f.count.style.display = f.count.nextSibling.style.display = f.endType.value === "count" ? "" : "none";
     const ev = read();
+    if (freq === "WEEKLY" && !ev.rec.byday.length && isDateStr(ev.date)) ev.rec.byday = [DAY_CODES[new Date(ev.date + "T00:00:00").getDay()]];
     recSummary.textContent = freq === "NONE" ? "" : "↻ " + describeRec(ev);
   };
   // 開始時間改了，結束時間跟著平移（維持原本長度）
