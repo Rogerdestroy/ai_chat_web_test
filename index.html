@@ -5,100 +5,176 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI 小助手（本機運算・免費無限制）</title>
 <style>
-  :root{
-    --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1f2329; --sub:#6b7280;
-    --accent:#2563eb; --accent-soft:#e8f0fe; --ai:#f2f4f7; --ok:#15803d; --warn:#b45309; --err:#b91c1c;
-  }
+  :root{ --fg:#111; --bg:#fff; --mute:#777; --soft:#f2f2f2; --line:#111; --thin:#d9d9d9; }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{background:var(--bg);color:var(--text);
+  body{background:var(--bg);color:var(--fg);font-size:15px;
     font-family:-apple-system,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif;
     display:flex;justify-content:center}
-  .app{width:100%;max-width:760px;height:100%;display:flex;flex-direction:column;padding:12px;gap:8px}
-  header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--card);
-    border:1px solid var(--line);border-radius:14px;padding:10px 12px}
-  header h1{font-size:16px;margin:0 auto 0 0;white-space:nowrap}
-  select,button,textarea,input{font:inherit}
-  select{padding:7px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;max-width:100%}
-  button{padding:7px 14px;border:0;border-radius:9px;background:var(--accent);color:#fff;cursor:pointer}
-  button.ghost{background:#fff;color:var(--text);border:1px solid var(--line)}
-  button.okbtn{background:var(--ok)}
-  button:disabled{opacity:.45;cursor:not-allowed}
+  .app{width:100%;max-width:760px;height:100%;display:flex;flex-direction:column;padding:12px;gap:10px}
+  select,button,textarea,input{font:inherit;color:inherit}
+  button{padding:6px 12px;border:1px solid var(--line);border-radius:0;background:var(--bg);cursor:pointer;white-space:nowrap}
+  button:hover:not(:disabled){background:var(--fg);color:var(--bg)}
+  button.primary{background:var(--fg);color:var(--bg)}
+  button.primary:hover:not(:disabled){background:var(--bg);color:var(--fg)}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  :focus-visible{outline:2px solid var(--fg);outline-offset:2px}
   .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-  .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
-  .seg button{border-radius:0;background:#fff;color:var(--sub);padding:7px 14px}
-  .seg button.on{background:var(--accent);color:#fff}
-  #gcal{margin-left:auto;font-size:14px}
-  #status{font-size:13px;color:var(--sub);padding:0 4px;min-height:18px}
-  #status.err{color:var(--err)}
-  .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;display:none}
-  .bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
-  #log{flex:1;overflow-y:auto;background:var(--card);border:1px solid var(--line);
-    border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
-  .msg{max-width:85%;padding:9px 13px;border-radius:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-  .user{align-self:flex-end;background:var(--accent-soft)}
-  .ai{align-self:flex-start;background:var(--ai)}
-  .hint{color:var(--sub);font-size:14px;text-align:center;margin:auto;line-height:1.8}
-  .card{align-self:flex-start;width:min(100%,460px);border:1px solid var(--line);border-radius:14px;
-    padding:12px;background:#fbfcfe;display:flex;flex-direction:column;gap:8px}
-  .card h3{margin:0;font-size:15px}
-  .card label{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--sub)}
-  .card label>span{width:64px;flex:none}
-  .card input[type=text],.card input[type=date],.card input[type=time],.card select{
-    flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
-  .card .times{display:flex;gap:6px;flex:1;align-items:center}
-  .card .result{font-size:14px;line-height:1.6}
-  .card .result.ok{color:var(--ok)} .card .result.err{color:var(--err)}
-  .card a{color:var(--accent)}
+  .muted{color:var(--mute);font-size:13px}
+
+  header{display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  header h1{font-size:16px;font-weight:600;margin:0 auto 0 0;letter-spacing:.02em}
+  #modelBtn{max-width:52vw;overflow:hidden;text-overflow:ellipsis}
+
+  .seg{display:inline-flex;border:1px solid var(--line)}
+  .seg button{border:0}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--fg);color:var(--bg)}
+  #gcal{margin-left:auto}
+
+  /* 模型面板 */
+  .panel{border:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  .panel h2{font-size:14px;margin:0 0 4px;font-weight:600}
+  .mrow{display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--thin)}
+  .mrow:first-of-type{border-top:0}
+  .mname b{font-weight:600}
+  .mname small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
+  .badge{font-size:12px;padding:1px 6px;border:1px solid var(--thin);color:var(--mute);white-space:nowrap}
+  .badge.on{border-color:var(--line);color:var(--fg)}
+  .badge.use{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+  details{font-size:13px;line-height:1.7}
+  details summary{cursor:pointer;color:var(--fg)}
+  details p{margin:6px 0;color:#333}
+  code{font-size:12px;background:var(--soft);padding:0 4px;word-break:break-all}
+
+  /* 下載畫面 */
+  .dl{border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:8px}
+  .dl-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .dl-pct{font-size:32px;font-weight:300;font-variant-numeric:tabular-nums;line-height:1}
+  .bar{height:10px;border:1px solid var(--line);background:var(--bg)}
+  .bar>i{display:block;height:100%;width:0;background:var(--fg);transition:width .25s}
+  .dl-detail{font-variant-numeric:tabular-nums}
+
+  #status{font-size:13px;color:var(--mute);min-height:18px}
+  #status.err{color:var(--fg);font-weight:600}
+  [hidden]{display:none !important}
+
+  /* 對話 */
+  #log{flex:1;overflow-y:auto;border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:10px}
+  .msg{max-width:85%;padding:8px 12px;line-height:1.65;white-space:pre-wrap;word-break:break-word;border:1px solid var(--line)}
+  .user{align-self:flex-end;background:var(--fg);color:var(--bg)}
+  .ai{align-self:flex-start}
+  .hint{color:var(--mute);font-size:14px;text-align:center;margin:auto;line-height:1.9}
+
+  /* 行程確認卡 */
+  .card{align-self:flex-start;width:min(100%,480px);border:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:8px}
+  .card h3{margin:0 0 2px;font-size:14px;font-weight:600}
+  .card label{display:flex;align-items:center;gap:8px;font-size:14px}
+  .card label>span{width:56px;flex:none;color:var(--mute)}
+  .card input[type=text],.card input[type=date],.card input[type=datetime-local],.card input[type=number],.card select,select{
+    min-width:0;padding:5px 7px;border:1px solid var(--line);border-radius:0;background:var(--bg)}
+  .card input[type=text],.card input[type=date],.card input[type=datetime-local],.card select{flex:1}
+  .card input[type=checkbox]{accent-color:var(--fg)}
   .card .inline{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
   .card .grow{flex:1}
-  .card input[type=datetime-local]{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
-  .card input[type=number]{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
-  .card .sub{flex-direction:column;gap:8px;padding:8px 10px;border-left:3px solid var(--accent-soft);margin-left:4px}
+  .card .sub{flex-direction:column;gap:8px;padding:6px 0 6px 10px;border-left:1px solid var(--line);margin-left:2px}
   .card .days{display:flex;flex-wrap:wrap;gap:4px}
-  .card .chip{display:inline-flex;align-items:center;gap:2px;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--text);cursor:pointer}
-  .card .chip:has(input:checked){background:var(--accent-soft);border-color:var(--accent)}
-  .card .summary{font-size:14px;color:var(--accent)}
+  .card .chip{display:inline-flex;align-items:center;padding:2px 9px;border:1px solid var(--line);cursor:pointer;color:var(--fg)}
+  .card .chip input{display:none}
+  .card .chip:has(input:checked){background:var(--fg);color:var(--bg)}
+  .card .summary{font-size:13px;border-top:1px dashed var(--thin);padding-top:6px}
+  .card .result{font-size:13px;line-height:1.6}
+  .card .result.err{font-weight:600}
+  .card a{color:var(--fg)}
+
   form{display:flex;gap:8px}
-  textarea{flex:1;resize:none;height:46px;max-height:140px;padding:11px 12px;
-    border:1px solid var(--line);border-radius:12px;background:#fff}
-  textarea:focus,select:focus,input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  textarea{flex:1;resize:none;height:44px;max-height:140px;padding:10px 12px;border:1px solid var(--line);border-radius:0;background:var(--bg)}
+  .mname .rec{display:inline-block;margin-left:6px;font-size:11px;padding:0 5px;border:1px solid var(--line);vertical-align:1px}
+  .mname .rec.warn{border-style:dashed;color:var(--mute)}
+  #manualBtn{font-size:14px}
+
+  /* 手機、窄螢幕 */
+  html,body{height:100dvh}
+  .app{padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+  @media (max-width:600px){
+    body{font-size:15px}
+    .app{gap:8px}
+    header h1{font-size:15px}
+    #modelBtn{max-width:46vw}
+    .mrow{grid-template-columns:1fr auto auto;row-gap:6px}
+    .mrow .mname{grid-column:1/-1}
+    .mrow .badge{justify-self:start}
+    .panel{max-height:55dvh;overflow-y:auto}
+    .msg{max-width:92%}
+    .card{width:100%}
+    .card label{flex-wrap:wrap}
+    .card label>span{width:44px}
+    .card .grow,.card .grow input{width:100%}
+    .dl-pct{font-size:26px}
+    #gcal{margin-left:0}
+    /* iOS 輸入框小於 16px 會自動放大畫面 */
+    input,select,textarea{font-size:16px !important}
+  }
 </style>
 </head>
 <body>
 <div class="app">
   <header>
-    <h1>🤖 AI 小助手</h1>
-    <select id="model" aria-label="選擇模型"></select>
-    <button id="load">載入模型</button>
-    <button id="clear" class="ghost" title="清除對話">清除</button>
+    <h1>AI 小助手</h1>
+    <button id="modelBtn" type="button" title="選擇或管理模型">模型 ▾</button>
+    <button id="clear" type="button" title="清除對話">清除</button>
   </header>
+
+  <!-- 模型面板 -->
+  <section class="panel" id="modelPanel">
+    <h2>選擇模型</h2>
+    <div id="modelList"></div>
+    <div class="muted" id="storage"></div>
+    <details>
+      <summary>模型存在哪裡？會佔用空間嗎？</summary>
+      <p>模型下載後存在<b>這個瀏覽器的「快取儲存空間」（Cache Storage）</b>裡，屬於 <code>rogerdestroy.github.io</code> 這個網站，<b>會佔用電腦的硬碟空間</b>，大小大約等於模型檔案（上面那行會顯示目前實際用量）。</p>
+      <p>實際位置在瀏覽器的使用者資料夾內，例如 Windows 的 Chrome：<code>%LOCALAPPDATA%\Google\Chrome\User Data\Default\Service Worker\CacheStorage</code>。請不要直接去刪那裡的檔案。</p>
+      <p><b>要釋放空間：</b>在上面列表按「刪除」最簡單；或到 Chrome「設定 → 隱私權和安全性 → 網站設定 → 查看各網站的權限和儲存資料」，刪除 rogerdestroy.github.io 的資料。</p>
+      <p>換一個瀏覽器、用無痕視窗，或把這頁嵌入其他網站（例如 Google 協作平台）時，瀏覽器可能會另外存一份，需要重新下載。</p>
+    </details>
+  </section>
+
+  <!-- 下載／載入畫面 -->
+  <section class="dl" id="dl" hidden>
+    <div class="dl-head">
+      <div>
+        <div id="dlName" style="font-weight:600"></div>
+        <div id="dlPhase" class="muted"></div>
+      </div>
+      <div class="dl-pct" id="dlPct">0%</div>
+    </div>
+    <div class="bar"><i id="dlBar"></i></div>
+    <div class="dl-detail muted" id="dlDetail">準備中…</div>
+  </section>
 
   <div class="row">
     <div class="seg" role="tablist">
-      <button id="modeChat" class="on" type="button">💬 聊天</button>
-      <button id="modeEvent" type="button">📅 加行程</button>
+      <button id="modeChat" class="on" type="button">聊天</button>
+      <button id="modeEvent" type="button">加行程</button>
     </div>
-    <button id="gcal" class="ghost" type="button" hidden>連結 Google 日曆</button>
+    <button id="manualBtn" type="button" hidden>＋ 手動新增</button>
+    <button id="gcal" type="button" hidden>連結 Google 日曆</button>
   </div>
-
-  <div class="bar" id="bar"><i></i></div>
   <div id="status">檢查瀏覽器中…</div>
 
   <div id="log">
     <div class="hint" id="hint">
-      AI 直接在你的裝置上運算，不連外部伺服器、免費、沒有次數限制。<br>
-      第一次使用需下載模型（約 1～2 GB 以上），之後會存在瀏覽器裡，再開就很快。<br>
-      切到「📅 加行程」，用一句話說出事件，例如：<br>
-      「下週三下午三點十五分到四點在視聽教室開會，前一天提醒我」<br>
-      「每週一三五早上七點四十分晨間打掃，到學期結束 1/20」<br>
-      AI 會整理好讓你確認，再加入 Google 日曆，時間到由 Google 日曆通知你。
+      AI 在你的裝置上運算：免費、不限次數、對話不會上傳。<br>
+      先在上方選一個模型下載（只有第一次需要）。<br>
+      「加行程」範例：<br>
+      下週三下午三點十五分到四點在視聽教室開會，前一天提醒我<br>
+      每週一三五早上七點四十分晨間打掃，到 1/20
     </div>
   </div>
 
   <form id="form">
     <textarea id="input" placeholder="請先載入模型…" disabled></textarea>
-    <button id="send" disabled>送出</button>
+    <button id="send" class="primary" disabled>送出</button>
   </form>
 </div>
 
@@ -111,12 +187,13 @@ const CONFIG = {
   // ↓ 填入 Google Cloud 的 OAuth「網頁應用程式」用戶端 ID，就能直接寫入使用者日曆。
   //   留空時改用「帶入 Google 日曆」連結（使用者需在 Google 日曆按一下「儲存」）。
   googleClientId: "",
+  // vram：所需顯示記憶體 GB [支援 f16 的裝置, 不支援 f16 的裝置]；phone：手機可用
   models: [
-    { id: "Qwen3-1.7B-q4f16_1-MLC",            label: "Qwen3 1.7B（推薦・需 2.0 GB）" },
-    { id: "Qwen3-4B-q4f16_1-MLC",              label: "Qwen3 4B（較聰明、日期判斷較準・需 3.4 GB）" },
-    { id: "Qwen3-8B-q4f16_1-MLC",              label: "Qwen3 8B（最強・中高階電腦・需 5.7 GB）", heavy: true },
-    { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B（較舊電腦・需 1.6 GB）" },
-    { id: "Qwen3.5-0.8B-q4f16_1-MLC",          label: "Qwen3.5 0.8B（最輕量・需 1.6 GB）" },
+    { base: "Qwen3-0.6B",            name: "Qwen3 0.6B",   note: "最輕量・手機適用",         vram: [1.4, 1.9], phone: true },
+    { base: "Qwen3-1.7B",            name: "Qwen3 1.7B",   note: "推薦・一般電腦／高階手機", vram: [2.0, 2.6], phone: true },
+    { base: "Qwen3-4B",              name: "Qwen3 4B",     note: "較聰明、日期判斷較準",     vram: [3.4, 4.3] },
+    { base: "Qwen3-8B",              name: "Qwen3 8B",     note: "最強・中高階電腦",         vram: [5.7, 6.9], heavy: true },
+    { base: "Qwen2.5-1.5B-Instruct", name: "Qwen2.5 1.5B", note: "較舊電腦",                 vram: [1.6, 1.9], phone: true },
   ],
 };
 /* =========================================================== */
@@ -126,7 +203,7 @@ const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Taipei";
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
 const $ = (id) => document.getElementById(id);
-const statusEl = $("status"), bar = $("bar"), log = $("log");
+const statusEl = $("status"), log = $("log");
 let webllm, engine = null, loadedId = null, busy = false, mode = "chat";
 const history = [];
 
@@ -169,75 +246,170 @@ function setMode(m) {
   mode = m;
   $("modeChat").classList.toggle("on", m === "chat");
   $("modeEvent").classList.toggle("on", m === "event");
+  $("manualBtn").hidden = m !== "event";
   setReady(!!engine && !busy);
   $("input").focus();
 }
 $("modeChat").onclick = () => setMode("chat");
 $("modeEvent").onclick = () => setMode("event");
+// 不用 AI，直接開一張空白行程卡（任何裝置都能用）
+$("manualBtn").onclick = () => {
+  const now = new Date(); now.setMinutes(0, 0, 0); now.setHours(now.getHours() + 1);
+  showEventCard(normalize({ title: "", date: ymd(now), all_day: false, start_time: `${pad(now.getHours())}:00`, end_time: "",
+    reminder_minutes: CONFIG.defaultReminderMinutes, location: "", notes: "", repeat: "none", interval: 1, weekdays: [], until: "", count: 0 }, ""), false, true);
+};
 
-/* ---------- 模型清單與 WebGPU 檢查 ---------- */
-const sel = $("model");
-for (const m of CONFIG.models) sel.add(new Option(m.label, m.id));
-const saved = recall("ys-webllm-model");
-if (saved && CONFIG.models.some(m => m.id === saved)) sel.value = saved;
-
-async function checkGPU() {
-  if (!("gpu" in navigator)) return "這個瀏覽器不支援 WebGPU，請改用電腦版 Chrome 或 Edge（版本 113 以上）。";
-  try {
-    if (!(await navigator.gpu.requestAdapter())) return "找不到可用的顯示晶片（WebGPU adapter），請確認瀏覽器已開啟硬體加速。";
-  } catch { return "WebGPU 初始化失敗，請更新瀏覽器或顯示卡驅動程式。"; }
-  return null;
-}
-async function markCached() {
-  for (const opt of sel.options) {
-    try {
-      if (await webllm.hasModelInCache(opt.value) && !opt.text.includes("✓")) opt.text = "✓ " + opt.text + "・已下載";
-    } catch {}
+/* ---------- 模型管理（清單、下載狀態、刪除） ---------- */
+let cachedSet = new Set();
+const fmtSize = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(2) + " GB" : Math.max(0, Math.round(mb)) + " MB");
+const fmtTime = (s) => (!isFinite(s) || s < 0 ? "計算中" : s < 60 ? Math.ceil(s) + " 秒" : Math.floor(s / 60) + " 分 " + Math.round(s % 60) + " 秒");
+// 裝置判斷：手機／平板；顯示晶片不支援 f16 時改用 f32 版模型
+const IS_MOBILE = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+let QUANT = "q4f16_1";
+const RECOMMENDED = IS_MOBILE ? "Qwen3-0.6B" : "Qwen3-1.7B";
+function applyQuant() {
+  for (const m of CONFIG.models) {
+    m.id = `${m.base}-${QUANT}-MLC`;
+    m.vramNow = m.vram[QUANT === "q4f16_1" ? 0 : 1];
+    m.desc = `${m.note}・需 ${m.vramNow} GB 顯示記憶體`;
   }
 }
+applyQuant();
+const modelName = (id) => CONFIG.models.find((m) => m.id === id)?.name || id;
+
+function togglePanel(show) {
+  $("modelPanel").hidden = !show;
+  $("modelBtn").textContent = (loadedId ? "模型：" + modelName(loadedId) : "模型") + (show ? " ▴" : " ▾");
+}
+$("modelBtn").onclick = () => togglePanel($("modelPanel").hidden);
+
+async function refreshCache() {
+  const s = new Set();
+  if (webllm) for (const m of CONFIG.models) { try { if (await webllm.hasModelInCache(m.id)) s.add(m.id); } catch {} }
+  cachedSet = s;
+  renderModels(); updateStorage();
+}
+async function updateStorage() {
+  try {
+    const { usage, quota } = await navigator.storage.estimate();
+    $("storage").textContent = `本網站目前在這台電腦佔用 ${fmtSize(usage / 1048576)}（瀏覽器允許上限約 ${fmtSize(quota / 1048576)}）`;
+  } catch { $("storage").textContent = ""; }
+}
+function renderModels() {
+  $("modelList").replaceChildren(...CONFIG.models.map((m) => {
+    const cached = cachedSet.has(m.id), inUse = m.id === loadedId;
+    const badge = el("span", { className: "badge" + (inUse ? " use" : cached ? " on" : ""),
+      textContent: inUse ? "● 使用中" : cached ? "✓ 已下載" : "未下載" });
+    const go = el("button", { type: "button", className: cached ? "" : "primary",
+      textContent: inUse ? "已載入" : cached ? "載入" : "下載", disabled: inUse || busy || !webllm });
+    go.onclick = () => loadModel(m.id);
+    const del = el("button", { type: "button", textContent: "刪除", title: "從這台電腦刪除這個模型",
+      disabled: !cached || inUse || busy });
+    del.onclick = () => deleteModel(m);
+    return el("div", { className: "mrow" },
+      el("div", { className: "mname" }, el("b", { textContent: m.name }),
+        m.base === RECOMMENDED ? el("span", { className: "rec", textContent: IS_MOBILE ? "這台裝置建議" : "建議" }) : "",
+        IS_MOBILE && !m.phone ? el("span", { className: "rec warn", textContent: "手機可能跑不動" }) : "",
+        el("small", { textContent: m.desc })),
+      badge, go, del);
+  }));
+}
+async function deleteModel(m) {
+  if (!confirm(`確定要從這台電腦刪除「${m.name}」嗎？\n之後要用需要重新下載。`)) return;
+  try { await webllm.deleteModelAllInfoInCache(m.id); setStatus(`已刪除 ${m.name}。`); }
+  catch (e) { setStatus("刪除失敗：" + (e?.message || e), "err"); }
+  refreshCache();
+}
+
+/* ---------- WebGPU 檢查 ---------- */
+async function checkGPU() {
+  const where = IS_IOS ? "請把 iPhone／iPad 更新到 iOS 26 以上（Safari 或任何瀏覽器皆可）。"
+    : IS_ANDROID ? "請用 Android 12 以上手機的最新版 Chrome。"
+    : "請用最新版 Chrome、Edge（Windows／Mac），或 Mac 的 Safari 26 以上。";
+  if (!("gpu" in navigator)) return "這個瀏覽器還不支援 WebGPU，無法執行 AI。" + where;
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return "找不到可用的顯示晶片，無法執行 AI。" + (IS_MOBILE ? where : "請確認瀏覽器已開啟「硬體加速」。");
+    if (!adapter.features.has("shader-f16")) { QUANT = "q4f32_1"; applyQuant(); }
+  } catch { return "WebGPU 初始化失敗，請更新瀏覽器。" + where; }
+  return null;
+}
 (async () => {
+  renderModels(); updateStorage();
   const gpuErr = await checkGPU();
-  if (gpuErr) { setStatus(gpuErr, "err"); $("load").disabled = true; return; }
+  if (gpuErr) { setStatus(gpuErr + "（仍可用「加行程 → ＋ 手動新增」建立行程）", "err"); return; }
   try { webllm = await import(WEBLLM_URL); }
-  catch { setStatus("無法載入 WebLLM 程式庫，請檢查網路連線後重新整理。", "err"); $("load").disabled = true; return; }
-  await markCached();
-  const cached = await webllm.hasModelInCache(sel.value).catch(() => false);
-  setStatus(cached ? "模型已在瀏覽器中，按「載入模型」即可開始。" : "選好模型後按「載入模型」（第一次需要下載）。");
+  catch { setStatus("無法載入 WebLLM 程式庫，請檢查網路連線後重新整理。", "err"); return; }
+  await refreshCache();
+  const last = recall("ys-webllm-model");
+  setStatus(cachedSet.size
+    ? `已下載的模型會標示「✓ 已下載」，按「載入」即可開始${last && cachedSet.has(last) ? `（上次使用：${modelName(last)}）` : ""}。`
+    : "請在上方選一個模型按「下載」（第一次需要下載，之後就不用）。");
 })();
 
-/* ---------- 載入模型 ---------- */
-$("load").onclick = async () => {
-  if (busy) return;
-  const id = sel.value;
-  if (id === loadedId) { setStatus("這個模型已經載入了，可以開始使用。"); return; }
+/* ---------- 下載／載入畫面 ---------- */
+function showProgress(id, p) {
+  const t = p.text || "";
+  const pct = Math.max(0, Math.min(100, Math.round((p.progress || 0) * 100)));
+  let phase = "準備中", detail = t, m;
+  if ((m = /Fetching param cache\[(\d+)\/(\d+)\]: (\d+)MB fetched\. (\d+)% completed, (\d+) secs/.exec(t))) {
+    const mb = +m[3], pc = +m[4], secs = +m[5];
+    const total = pc > 0 ? (mb * 100) / pc : NaN;
+    const speed = secs > 0 ? mb / secs : 0;
+    phase = "下載中（存到這台電腦）";
+    detail = `${fmtSize(mb)} / ${isFinite(total) ? "約 " + fmtSize(total) : "計算中"}　·　${speed ? speed.toFixed(1) + " MB/s" : "—"}　·　剩約 ${fmtTime(speed ? (total - mb) / speed : NaN)}　·　檔案 ${m[1]}/${m[2]}`;
+  } else if ((m = /Loading model from cache\[(\d+)\/(\d+)\]: (\d+)MB loaded\. (\d+)% completed/.exec(t))) {
+    phase = "從這台電腦讀取模型到顯示卡";
+    detail = `${fmtSize(+m[3])} 已讀取　·　檔案 ${m[1]}/${m[2]}`;
+  } else if (/Finish loading/.test(t)) {
+    phase = "完成"; detail = "模型已就緒";
+  } else if (/shader|GPU/i.test(t)) {
+    phase = "初始化顯示卡"; detail = "第一次可能需要幾秒到幾十秒";
+  }
+  $("dlName").textContent = modelName(id);
+  $("dlPhase").textContent = phase;
+  $("dlPct").textContent = pct + "%";
+  $("dlBar").style.width = pct + "%";
+  $("dlDetail").textContent = detail;
+}
+
+async function loadModel(id) {
+  if (busy || !webllm) return;
   const info = CONFIG.models.find((m) => m.id === id);
-  if (info?.heavy && !(await webllm.hasModelInCache(id).catch(() => false)) &&
-      !confirm("這是大型模型：第一次要下載數 GB，並需要約 5.7 GB 顯示記憶體。\n建議：獨立顯卡（8 GB 以上）或 16 GB 以上記憶體的 Apple M 系列電腦，並連 Wi-Fi。\n\n確定要下載嗎？")) return;
-  busy = true; setReady(false);
-  $("load").disabled = true; sel.disabled = true;
-  bar.style.display = "block"; bar.firstElementChild.style.width = "0";
-  setStatus("準備中…");
+  if (IS_MOBILE && !info?.phone && !cachedSet.has(id) &&
+      !confirm(`「${info.name}」對手機來說太大，很可能載入失敗或讓瀏覽器重新整理。\n建議改用 Qwen3 0.6B。\n\n仍要下載嗎？`)) return;
+  if (!IS_MOBILE && info?.heavy && !cachedSet.has(id) &&
+      !confirm(`這是大型模型：第一次要下載數 GB，並需要約 ${info.vramNow} GB 顯示記憶體。\n建議：獨立顯卡（8 GB 以上）或 16 GB 以上記憶體的 Apple M 系列電腦，並連 Wi-Fi。\n\n確定要下載嗎？`)) return;
+  if (IS_MOBILE && !cachedSet.has(id) && !confirm(`即將下載「${info.name}」（數百 MB 到數 GB），建議連 Wi-Fi。確定嗎？`)) return;
+  busy = true; setReady(false); renderModels();
+  togglePanel(false);
+  $("dl").hidden = false;
+  showProgress(id, { progress: 0, text: "" });
+  setStatus(cachedSet.has(id) ? "從這台電腦讀取模型中，請勿關閉此頁…" : "下載中，請勿關閉此頁…（已下載完成的部分會保留）");
   try {
-    const onProgress = (p) => {
-      bar.firstElementChild.style.width = Math.round((p.progress || 0) * 100) + "%";
-      setStatus(p.text || "載入中…");
-    };
-    if (engine) await engine.reload(id);
+    const onProgress = (p) => showProgress(id, p);
+    if (engine) { engine.setInitProgressCallback?.(onProgress); await engine.reload(id); }
     else engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress });
     loadedId = id; store("ys-webllm-model", id);
-    setStatus("✅ 模型已就緒！");
-    markCached();
+    showProgress(id, { progress: 1, text: "Finish loading" });
+    setStatus(`✓ ${modelName(id)} 已就緒，可以開始使用。`);
+    try { await navigator.storage.persist?.(); } catch {}   // 請瀏覽器不要自動清掉模型
+    setTimeout(() => ($("dl").hidden = true), 1200);
   } catch (e) {
     console.error(e);
     const msg = String(e?.message || e);
-    setStatus(/memory|OOM|buffer|limit/i.test(msg)
+    $("dl").hidden = true; togglePanel(true);
+    setStatus(/memory|OOM|buffer|limit|device lost/i.test(msg)
       ? "記憶體不足，請改選較小的模型，或關閉其他分頁後再試。" : "載入失敗：" + msg, "err");
   } finally {
     busy = false; setReady(!!engine);
-    $("load").disabled = false; sel.disabled = false;
-    setTimeout(() => (bar.style.display = "none"), 600);
+    togglePanel(!$("modelPanel").hidden);
+    refreshCache();
   }
-};
+}
 
 /* ---------- 聊天 ---------- */
 async function chat(text) {
@@ -260,7 +432,7 @@ async function chat(text) {
     history.push({ role: "assistant", content: reply });
   } catch (e) {
     console.error(e);
-    box.textContent = "⚠️ 發生錯誤：" + (e?.message || e) + "\n可以按「清除」重新開始對話。";
+    box.textContent = "發生錯誤：" + (e?.message || e) + "\n可以按「清除」重新開始對話。";
     history.pop();
   }
 }
@@ -453,11 +625,11 @@ async function parseEvent(text) {
 const REMINDERS = [[0, "準時"], [5, "5 分鐘前"], [10, "10 分鐘前"], [15, "15 分鐘前"], [30, "30 分鐘前"],
   [60, "1 小時前"], [120, "2 小時前"], [1440, "1 天前"], [2880, "2 天前"], [10080, "1 週前"]];
 
-function showEventCard(e, failed) {
+function showEventCard(e, failed, manual = false) {
   $("hint")?.remove();
   const dt = (type, value) => el("input", { type, value, step: 60 });
   const f = {
-    title: el("input", { type: "text", value: e.title }),
+    title: el("input", { type: "text", value: e.title, placeholder: "事件名稱" }),
     allDay: el("input", { type: "checkbox", checked: e.allDay }),
     start: dt("datetime-local", `${e.date}T${e.start}`),
     end: dt("datetime-local", `${e.endDate}T${e.end}`),
@@ -500,13 +672,13 @@ function showEventCard(e, failed) {
   const endRowT = el("span", { className: "inline grow" }, f.end, f.endD);
 
   const result = el("div", { className: "result" });
-  const addBtn = el("button", { type: "button", className: "okbtn", textContent: CONFIG.googleClientId ? "✅ 加入 Google 日曆" : "📅 帶入 Google 日曆" });
-  const icsBtn = el("button", { type: "button", className: "ghost", textContent: "下載 .ics" });
+  const addBtn = el("button", { type: "button", className: "primary", textContent: CONFIG.googleClientId ? "加入 Google 日曆" : "帶入 Google 日曆" });
+  const icsBtn = el("button", { type: "button", textContent: "下載 .ics" });
   const lab = (name, ...kids) => el("label", {}, el("span", { textContent: name }), ...kids);
   const repDetail = el("div", { className: "sub" }, lab("間隔", intervalRow), lab("星期", dayRow), lab("結束", endRow));
 
   const card = el("div", { className: "card" },
-    el("h3", { textContent: failed ? "⚠️ 沒能完整理解，請手動確認：" : "請確認行程內容：" }),
+    el("h3", { textContent: manual ? "手動新增行程：" : failed ? "沒能完整理解，請手動確認：" : "請確認行程內容：" }),
     lab("事件", f.title), lab("全天", f.allDay), lab("開始", startRow), lab("結束", endRowT),
     lab("提醒", f.reminder, remWrap), lab("重複", f.freq), repDetail, recSummary,
     lab("地點", f.location), lab("備註", f.notes),
@@ -544,7 +716,7 @@ function showEventCard(e, failed) {
     f.until.style.display = f.endType.value === "until" ? "" : "none";
     f.count.style.display = f.count.nextSibling.style.display = f.endType.value === "count" ? "" : "none";
     const ev = read();
-    recSummary.textContent = freq === "NONE" ? "" : "🔁 " + describeRec(ev);
+    recSummary.textContent = freq === "NONE" ? "" : "↻ " + describeRec(ev);
   };
   // 開始時間改了，結束時間跟著平移（維持原本長度）
   let lastStart = f.start.value;
@@ -586,7 +758,7 @@ function showEventCard(e, failed) {
       addBtn.disabled = true; result.className = "result"; result.textContent = "寫入 Google 日曆中…";
       insertEvent(ev).then((link) => {
         result.className = "result ok";
-        result.replaceChildren("✅ 已加入日曆，時間到 Google 日曆會通知你。 ",
+        result.replaceChildren("✓ 已加入日曆，時間到 Google 日曆會通知你。 ",
           el("a", { href: link, target: "_blank", rel: "noopener", textContent: "查看活動" }));
         addBtn.textContent = "已加入";
       }).catch((err) => {
