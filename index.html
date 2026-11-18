@@ -114,6 +114,7 @@ const CONFIG = {
   models: [
     { id: "Qwen3-1.7B-q4f16_1-MLC",            label: "Qwen3 1.7B（推薦・需 2.0 GB）" },
     { id: "Qwen3-4B-q4f16_1-MLC",              label: "Qwen3 4B（較聰明、日期判斷較準・需 3.4 GB）" },
+    { id: "Qwen3-8B-q4f16_1-MLC",              label: "Qwen3 8B（最強・中高階電腦・需 5.7 GB）", heavy: true },
     { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B（較舊電腦・需 1.6 GB）" },
     { id: "Qwen3.5-0.8B-q4f16_1-MLC",          label: "Qwen3.5 0.8B（最輕量・需 1.6 GB）" },
   ],
@@ -209,6 +210,9 @@ $("load").onclick = async () => {
   if (busy) return;
   const id = sel.value;
   if (id === loadedId) { setStatus("這個模型已經載入了，可以開始使用。"); return; }
+  const info = CONFIG.models.find((m) => m.id === id);
+  if (info?.heavy && !(await webllm.hasModelInCache(id).catch(() => false)) &&
+      !confirm("這是大型模型：第一次要下載數 GB，並需要約 5.7 GB 顯示記憶體。\n建議：獨立顯卡（8 GB 以上）或 16 GB 以上記憶體的 Apple M 系列電腦，並連 Wi-Fi。\n\n確定要下載嗎？")) return;
   busy = true; setReady(false);
   $("load").disabled = true; sel.disabled = true;
   bar.style.display = "block"; bar.firstElementChild.style.width = "0";
