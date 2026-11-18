@@ -7,24 +7,30 @@
 <style>
   :root{
     --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1f2329; --sub:#6b7280;
-    --accent:#2563eb; --accent-soft:#e8f0fe; --ai:#f2f4f7; --warn:#b45309; --err:#b91c1c;
+    --accent:#2563eb; --accent-soft:#e8f0fe; --ai:#f2f4f7; --ok:#15803d; --warn:#b45309; --err:#b91c1c;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
   body{background:var(--bg);color:var(--text);
     font-family:-apple-system,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif;
     display:flex;justify-content:center}
-  .app{width:100%;max-width:760px;height:100%;display:flex;flex-direction:column;padding:12px;gap:10px}
+  .app{width:100%;max-width:760px;height:100%;display:flex;flex-direction:column;padding:12px;gap:8px}
   header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--card);
     border:1px solid var(--line);border-radius:14px;padding:10px 12px}
   header h1{font-size:16px;margin:0 auto 0 0;white-space:nowrap}
-  select,button,textarea{font:inherit}
+  select,button,textarea,input{font:inherit}
   select{padding:7px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;max-width:100%}
   button{padding:7px 14px;border:0;border-radius:9px;background:var(--accent);color:#fff;cursor:pointer}
-  button.ghost{background:transparent;color:var(--sub);border:1px solid var(--line)}
+  button.ghost{background:#fff;color:var(--text);border:1px solid var(--line)}
+  button.okbtn{background:var(--ok)}
   button:disabled{opacity:.45;cursor:not-allowed}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  .seg button{border-radius:0;background:#fff;color:var(--sub);padding:7px 14px}
+  .seg button.on{background:var(--accent);color:#fff}
+  #gcal{margin-left:auto;font-size:14px}
   #status{font-size:13px;color:var(--sub);padding:0 4px;min-height:18px}
-  #status.warn{color:var(--warn)} #status.err{color:var(--err)}
+  #status.err{color:var(--err)}
   .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;display:none}
   .bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
   #log{flex:1;overflow-y:auto;background:var(--card);border:1px solid var(--line);
@@ -33,10 +39,21 @@
   .user{align-self:flex-end;background:var(--accent-soft)}
   .ai{align-self:flex-start;background:var(--ai)}
   .hint{color:var(--sub);font-size:14px;text-align:center;margin:auto;line-height:1.8}
+  .card{align-self:flex-start;width:min(100%,460px);border:1px solid var(--line);border-radius:14px;
+    padding:12px;background:#fbfcfe;display:flex;flex-direction:column;gap:8px}
+  .card h3{margin:0;font-size:15px}
+  .card label{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--sub)}
+  .card label>span{width:64px;flex:none}
+  .card input[type=text],.card input[type=date],.card input[type=time],.card select{
+    flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
+  .card .times{display:flex;gap:6px;flex:1;align-items:center}
+  .card .result{font-size:14px;line-height:1.6}
+  .card .result.ok{color:var(--ok)} .card .result.err{color:var(--err)}
+  .card a{color:var(--accent)}
   form{display:flex;gap:8px}
   textarea{flex:1;resize:none;height:46px;max-height:140px;padding:11px 12px;
     border:1px solid var(--line);border-radius:12px;background:#fff}
-  textarea:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  textarea:focus,select:focus,input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -48,6 +65,14 @@
     <button id="clear" class="ghost" title="清除對話">清除</button>
   </header>
 
+  <div class="row">
+    <div class="seg" role="tablist">
+      <button id="modeChat" class="on" type="button">💬 聊天</button>
+      <button id="modeEvent" type="button">📅 加行程</button>
+    </div>
+    <button id="gcal" class="ghost" type="button" hidden>連結 Google 日曆</button>
+  </div>
+
   <div class="bar" id="bar"><i></i></div>
   <div id="status">檢查瀏覽器中…</div>
 
@@ -55,7 +80,9 @@
     <div class="hint" id="hint">
       AI 直接在你的裝置上運算，不連外部伺服器、免費、沒有次數限制。<br>
       第一次使用需下載模型（約 1～2 GB 以上），之後會存在瀏覽器裡，再開就很快。<br>
-      建議用電腦版 Chrome 或 Edge，並連 Wi-Fi 下載。
+      切到「📅 加行程」，用一句話說出事件，例如：<br>
+      「下週三下午三點到四點在視聽教室開設備會議，前一天提醒我」<br>
+      AI 會整理好讓你確認，再加入 Google 日曆，時間到由 Google 日曆通知你。
     </div>
   </div>
 
@@ -66,94 +93,112 @@
 </div>
 
 <script type="module">
-/* ===== 可自行修改的設定 ===== */
+/* ===================== 可自行修改的設定 ===================== */
 const CONFIG = {
-  // 系統提示：決定 AI 的角色與語氣
   systemPrompt: "你是一位友善、有耐心的助手。一律使用繁體中文（台灣用語）回答，回答簡潔清楚。",
-  // 每次送給模型的最近對話則數（模型記憶上限約 4096 tokens，太多會出錯）
   historyLimit: 8,
-  // 可選模型（第一個為預設）
+  defaultReminderMinutes: 10,   // 使用者沒講提醒時間時，預設幾分鐘前通知
+  // ↓ 填入 Google Cloud 的 OAuth「網頁應用程式」用戶端 ID，就能直接寫入使用者日曆。
+  //   留空時改用「帶入 Google 日曆」連結（使用者需在 Google 日曆按一下「儲存」）。
+  googleClientId: "",
   models: [
-    // 括號內為所需顯示記憶體（WebLLM 官方設定值）
     { id: "Qwen3-1.7B-q4f16_1-MLC",            label: "Qwen3 1.7B（推薦・需 2.0 GB）" },
-    { id: "Qwen3-4B-q4f16_1-MLC",              label: "Qwen3 4B（較聰明・需 3.4 GB）" },
+    { id: "Qwen3-4B-q4f16_1-MLC",              label: "Qwen3 4B（較聰明、日期判斷較準・需 3.4 GB）" },
     { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B（較舊電腦・需 1.6 GB）" },
     { id: "Qwen3.5-0.8B-q4f16_1-MLC",          label: "Qwen3.5 0.8B（最輕量・需 1.6 GB）" },
   ],
 };
-/* ========================== */
+/* =========================================================== */
 
 const WEBLLM_URL = "https://esm.run/@mlc-ai/web-llm@0.2.89";
+const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Taipei";
+const WD = ["日", "一", "二", "三", "四", "五", "六"];
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status"), bar = $("bar"), log = $("log");
-let webllm, engine = null, loadedId = null, busy = false;
+let webllm, engine = null, loadedId = null, busy = false, mode = "chat";
 const history = [];
 
+/* ---------- 小工具 ---------- */
 function setStatus(text, cls = "") { statusEl.textContent = text; statusEl.className = cls; }
 function store(k, v) { try { localStorage.setItem(k, v); } catch {} }
 function recall(k) { try { return localStorage.getItem(k); } catch { return null; } }
-
+const pad = (n) => String(n).padStart(2, "0");
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+function addMinutes(date, time, mins) {
+  const d = new Date(`${date}T${time}:00`); d.setMinutes(d.getMinutes() + mins);
+  return { date: ymd(d), time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
+}
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  for (const k of kids) e.append(k);
+  return e;
+}
 function addMsg(role, text) {
   $("hint")?.remove();
-  const d = document.createElement("div");
-  d.className = "msg " + role;
-  d.textContent = text;
-  log.appendChild(d);
-  log.scrollTop = log.scrollHeight;
+  const d = el("div", { className: "msg " + role, textContent: text });
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
   return d;
 }
 const stripThink = (s) => s.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trimStart();
+const thinkOff = () => (/^Qwen3/.test(loadedId) ? { extra_body: { enable_thinking: false } } : {});
 
 function setReady(ready) {
   $("input").disabled = !ready;
   $("send").disabled = !ready;
-  $("input").placeholder = ready ? "輸入問題，Enter 送出（Shift+Enter 換行）" : "請先載入模型…";
+  $("input").placeholder = !ready ? "請先載入模型…"
+    : mode === "chat" ? "輸入問題，Enter 送出（Shift+Enter 換行）"
+    : "用一句話描述事件，例如：明天早上九點交科展報名表，前一天提醒我";
 }
 
-// 1) 填入模型清單
+/* ---------- 模式切換 ---------- */
+function setMode(m) {
+  mode = m;
+  $("modeChat").classList.toggle("on", m === "chat");
+  $("modeEvent").classList.toggle("on", m === "event");
+  setReady(!!engine && !busy);
+  $("input").focus();
+}
+$("modeChat").onclick = () => setMode("chat");
+$("modeEvent").onclick = () => setMode("event");
+
+/* ---------- 模型清單與 WebGPU 檢查 ---------- */
 const sel = $("model");
 for (const m of CONFIG.models) sel.add(new Option(m.label, m.id));
 const saved = recall("ys-webllm-model");
 if (saved && CONFIG.models.some(m => m.id === saved)) sel.value = saved;
 
-// 2) 檢查 WebGPU
 async function checkGPU() {
   if (!("gpu" in navigator)) return "這個瀏覽器不支援 WebGPU，請改用電腦版 Chrome 或 Edge（版本 113 以上）。";
   try {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) return "找不到可用的顯示晶片（WebGPU adapter），請確認瀏覽器已開啟硬體加速。";
+    if (!(await navigator.gpu.requestAdapter())) return "找不到可用的顯示晶片（WebGPU adapter），請確認瀏覽器已開啟硬體加速。";
   } catch { return "WebGPU 初始化失敗，請更新瀏覽器或顯示卡驅動程式。"; }
   return null;
 }
-
 async function markCached() {
   for (const opt of sel.options) {
     try {
-      if (await webllm.hasModelInCache(opt.value) && !opt.text.includes("✓"))
-        opt.text = "✓ " + opt.text + "・已下載";
+      if (await webllm.hasModelInCache(opt.value) && !opt.text.includes("✓")) opt.text = "✓ " + opt.text + "・已下載";
     } catch {}
   }
 }
-
 (async () => {
   const gpuErr = await checkGPU();
   if (gpuErr) { setStatus(gpuErr, "err"); $("load").disabled = true; return; }
-  try {
-    webllm = await import(WEBLLM_URL);
-  } catch {
-    setStatus("無法載入 WebLLM 程式庫，請檢查網路連線後重新整理。", "err");
-    $("load").disabled = true; return;
-  }
+  try { webllm = await import(WEBLLM_URL); }
+  catch { setStatus("無法載入 WebLLM 程式庫，請檢查網路連線後重新整理。", "err"); $("load").disabled = true; return; }
   await markCached();
   const cached = await webllm.hasModelInCache(sel.value).catch(() => false);
   setStatus(cached ? "模型已在瀏覽器中，按「載入模型」即可開始。" : "選好模型後按「載入模型」（第一次需要下載）。");
 })();
 
-// 3) 載入模型
+/* ---------- 載入模型 ---------- */
 $("load").onclick = async () => {
   if (busy) return;
   const id = sel.value;
-  if (id === loadedId) { setStatus("這個模型已經載入了，可以開始聊天。"); return; }
+  if (id === loadedId) { setStatus("這個模型已經載入了，可以開始使用。"); return; }
   busy = true; setReady(false);
   $("load").disabled = true; sel.disabled = true;
   bar.style.display = "block"; bar.firstElementChild.style.width = "0";
@@ -163,30 +208,25 @@ $("load").onclick = async () => {
       bar.firstElementChild.style.width = Math.round((p.progress || 0) * 100) + "%";
       setStatus(p.text || "載入中…");
     };
-    if (engine) { await engine.reload(id); }
-    else { engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress }); }
+    if (engine) await engine.reload(id);
+    else engine = await webllm.CreateMLCEngine(id, { initProgressCallback: onProgress });
     loadedId = id; store("ys-webllm-model", id);
-    setStatus("✅ 模型已就緒，開始聊天吧！");
-    setReady(true); $("input").focus();
+    setStatus("✅ 模型已就緒！");
     markCached();
   } catch (e) {
     console.error(e);
     const msg = String(e?.message || e);
     setStatus(/memory|OOM|buffer|limit/i.test(msg)
-      ? "記憶體不足，請改選較小的模型（例如 Qwen3.5 0.8B），或關閉其他分頁後再試。"
-      : "載入失敗：" + msg, "err");
+      ? "記憶體不足，請改選較小的模型，或關閉其他分頁後再試。" : "載入失敗：" + msg, "err");
   } finally {
-    busy = false; $("load").disabled = false; sel.disabled = false;
+    busy = false; setReady(!!engine);
+    $("load").disabled = false; sel.disabled = false;
     setTimeout(() => (bar.style.display = "none"), 600);
   }
 };
 
-// 4) 送出問題（串流顯示）
-async function send() {
-  const input = $("input");
-  const text = input.value.trim();
-  if (!text || !engine || busy) return;
-  input.value = ""; busy = true; setReady(false);
+/* ---------- 聊天 ---------- */
+async function chat(text) {
   addMsg("user", text);
   history.push({ role: "user", content: text });
   const box = addMsg("ai", "…");
@@ -194,10 +234,7 @@ async function send() {
   try {
     const stream = await engine.chat.completions.create({
       messages: [{ role: "system", content: CONFIG.systemPrompt }, ...history.slice(-CONFIG.historyLimit)],
-      stream: true,
-      temperature: 0.7,
-      // Qwen3 系列：關閉「思考」模式，回答更快（其他模型不加，以免干擾）
-      ...(/^Qwen3/.test(loadedId) ? { extra_body: { enable_thinking: false } } : {}),
+      stream: true, temperature: 0.7, ...thinkOff(),
     });
     for await (const chunk of stream) {
       raw += chunk.choices[0]?.delta?.content || "";
@@ -211,22 +248,287 @@ async function send() {
     console.error(e);
     box.textContent = "⚠️ 發生錯誤：" + (e?.message || e) + "\n可以按「清除」重新開始對話。";
     history.pop();
-  } finally {
-    busy = false; setReady(true); input.focus();
   }
 }
-$("form").onsubmit = (e) => { e.preventDefault(); send(); };
-$("input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
-});
 
-// 5) 清除對話
+/* ---------- 行程解析 ---------- */
+const EVENT_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    date: { type: "string" },
+    all_day: { type: "boolean" },
+    start_time: { type: "string" },
+    end_time: { type: "string" },
+    reminder_minutes: { type: "integer" },
+    location: { type: "string" },
+    notes: { type: "string" },
+  },
+  required: ["title", "date", "all_day", "start_time", "end_time", "reminder_minutes", "location", "notes"],
+};
+
+// 給小模型一張「日期對照表」，它就不用自己推算星期幾
+function dateTable() {
+  const now = new Date();
+  const mondayOffset = (now.getDay() + 6) % 7;            // 今天距離本週一幾天
+  const thisMonday = addDays(now, -mondayOffset);
+  const lines = [];
+  for (let i = 0; i < 21; i++) {
+    const d = addDays(now, i);
+    const weekIdx = Math.floor((d - thisMonday) / 864e5 / 7 + 1e-9);
+    const w = WD[d.getDay()];
+    const tags = [];
+    if (i === 0) tags.push("今天"); if (i === 1) tags.push("明天"); if (i === 2) tags.push("後天");
+    tags.push((["本週", "下週", "下下週"][weekIdx] || "") + w);
+    if (weekIdx === 0 && (d.getDay() === 0 || d.getDay() === 6)) tags.push("這個週末");
+    lines.push(`${ymd(d)}（${w}）${tags.join("、")}`);
+  }
+  return lines.join("\n");
+}
+
+function eventPrompt() {
+  const now = new Date();
+  return `你負責把使用者的一句話整理成行事曆事件，只輸出 JSON。
+現在時間：${ymd(now)}（星期${WD[now.getDay()]}）${pad(now.getHours())}:${pad(now.getMinutes())}，時區 ${TZ}。
+日期對照表（週一為一週的第一天）：
+${dateTable()}
+
+規則：
+- title：簡短的事件名稱（繁體中文），不要包含日期時間。
+- date：格式 YYYY-MM-DD，請查上面的對照表。沒講日期就用今天；講「幾號」就用最近一個未來的那天。
+- start_time / end_time：24 小時制 HH:MM。「下午三點」=15:00、「晚上七點半」=19:30、「中午」=12:00。
+- 沒講結束時間，end_time = 開始後 1 小時。
+- 完全沒講時間（只有日期）：all_day = true，start_time 與 end_time 都填 ""。
+- reminder_minutes：提前幾分鐘通知。「前一天」=1440、「前一小時」=60、「半小時前」=30。沒講就填 ${CONFIG.defaultReminderMinutes}。
+- location、notes：沒有就填 ""。`;
+}
+
+function normalize(ev, text) {
+  const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || "") && !isNaN(new Date(s + "T00:00:00"));
+  const isTime = (s) => /^([01]\d|2[0-3]):[0-5]\d$/.test(s || "");
+  const fixTime = (s) => { const m = /^(\d{1,2}):(\d{2})/.exec(s || ""); return m ? `${pad(+m[1])}:${m[2]}` : s; };
+  const today = ymd(new Date());
+  const e = {
+    title: (ev?.title || "").trim() || text.slice(0, 30),
+    date: isDate(ev?.date) ? ev.date : today,
+    allDay: !!ev?.all_day,
+    start: fixTime(ev?.start_time), end: fixTime(ev?.end_time),
+    reminder: Number.isFinite(+ev?.reminder_minutes) && +ev.reminder_minutes >= 0 ? Math.round(+ev.reminder_minutes) : CONFIG.defaultReminderMinutes,
+    location: (ev?.location || "").trim(), notes: (ev?.notes || "").trim(),
+  };
+  if (!e.allDay) {
+    if (!isTime(e.start)) { e.allDay = !ev; e.start = "09:00"; }
+    if (!isTime(e.end) || e.end <= e.start) e.end = addMinutes(e.date, e.start, 60).time;
+  }
+  if (e.allDay) { e.start = e.start && isTime(e.start) ? e.start : "09:00"; e.end = e.end && isTime(e.end) ? e.end : "10:00"; }
+  return e;
+}
+
+async function parseEvent(text) {
+  addMsg("user", text);
+  const box = addMsg("ai", "整理行程中…");
+  let ev = null;
+  try {
+    const r = await engine.chat.completions.create({
+      messages: [{ role: "system", content: eventPrompt() }, { role: "user", content: text }],
+      temperature: 0, max_tokens: 300, ...thinkOff(),
+      response_format: { type: "json_object", schema: JSON.stringify(EVENT_SCHEMA) },
+    });
+    ev = JSON.parse(stripThink(r.choices[0].message.content || "{}"));
+    await engine.resetChat();          // 行程解析不留記憶，避免影響聊天
+  } catch (e) { console.error(e); }
+  box.remove();
+  showEventCard(normalize(ev, text), !ev);
+}
+
+/* ---------- 確認卡片 ---------- */
+const REMINDERS = [[0, "準時"], [5, "5 分鐘前"], [10, "10 分鐘前"], [15, "15 分鐘前"], [30, "30 分鐘前"],
+  [60, "1 小時前"], [120, "2 小時前"], [1440, "1 天前"], [2880, "2 天前"], [10080, "1 週前"]];
+
+function showEventCard(e, failed) {
+  $("hint")?.remove();
+  const f = {
+    title: el("input", { type: "text", value: e.title }),
+    date: el("input", { type: "date", value: e.date }),
+    allDay: el("input", { type: "checkbox", checked: e.allDay }),
+    start: el("input", { type: "time", value: e.start }),
+    end: el("input", { type: "time", value: e.end }),
+    reminder: el("select"),
+    location: el("input", { type: "text", value: e.location, placeholder: "（選填）" }),
+    notes: el("input", { type: "text", value: e.notes, placeholder: "（選填）" }),
+  };
+  const opts = REMINDERS.some(([m]) => m === e.reminder) ? REMINDERS : [...REMINDERS, [e.reminder, `${e.reminder} 分鐘前`]].sort((a, b) => a[0] - b[0]);
+  for (const [m, t] of opts) f.reminder.add(new Option(t, m));
+  f.reminder.value = String(e.reminder);
+  const times = el("div", { className: "times" }, f.start, "到", f.end);
+  const syncAllDay = () => (times.style.display = f.allDay.checked ? "none" : "flex");
+  f.allDay.onchange = syncAllDay; syncAllDay();
+  f.start.onchange = () => { if (f.end.value <= f.start.value) f.end.value = addMinutes(f.date.value, f.start.value, 60).time; };
+
+  const result = el("div", { className: "result" });
+  const addBtn = el("button", { type: "button", className: "okbtn", textContent: CONFIG.googleClientId ? "✅ 加入 Google 日曆" : "📅 帶入 Google 日曆" });
+  const icsBtn = el("button", { type: "button", className: "ghost", textContent: "下載 .ics" });
+  const lab = (name, ...kids) => el("label", {}, el("span", { textContent: name }), ...kids);
+
+  const card = el("div", { className: "card" },
+    el("h3", { textContent: failed ? "⚠️ 沒能完整理解，請手動確認：" : "請確認行程內容：" }),
+    lab("事件", f.title), lab("日期", f.date), lab("全天", f.allDay), lab("時間", times),
+    lab("提醒", f.reminder), lab("地點", f.location), lab("備註", f.notes),
+    el("div", { className: "row" }, addBtn, icsBtn), result);
+  log.appendChild(card); log.scrollTop = log.scrollHeight;
+
+  const read = () => ({
+    title: f.title.value.trim() || "（未命名事件）", date: f.date.value, allDay: f.allDay.checked,
+    start: f.start.value, end: f.end.value, reminder: +f.reminder.value,
+    location: f.location.value.trim(), notes: f.notes.value.trim(),
+  });
+  const check = (ev) => {
+    if (!ev.date) return "請填日期";
+    if (!ev.allDay && (!ev.start || !ev.end)) return "請填開始與結束時間";
+    if (!ev.allDay && ev.end <= ev.start) return "結束時間要晚於開始時間";
+    return null;
+  };
+  addBtn.onclick = () => {
+    const ev = read(), bad = check(ev);
+    if (bad) { result.className = "result err"; result.textContent = bad; return; }
+    if (CONFIG.googleClientId) {
+      addBtn.disabled = true; result.className = "result"; result.textContent = "寫入 Google 日曆中…";
+      insertEvent(ev).then((link) => {
+        result.className = "result ok";
+        result.replaceChildren("✅ 已加入日曆，時間到 Google 日曆會通知你。 ",
+          el("a", { href: link, target: "_blank", rel: "noopener", textContent: "查看活動" }));
+        addBtn.textContent = "已加入";
+      }).catch((err) => {
+        addBtn.disabled = false; result.className = "result err";
+        result.textContent = "加入失敗：" + (err?.message || err);
+      });
+    } else {
+      window.open(templateUrl(ev), "_blank", "noopener");
+      result.className = "result";
+      result.textContent = "已開啟 Google 日曆，請在新分頁按「儲存」。通知會套用你日曆的預設提醒；要指定提醒時間請用「下載 .ics」。";
+    }
+  };
+  icsBtn.onclick = () => {
+    const ev = read(), bad = check(ev);
+    if (bad) { result.className = "result err"; result.textContent = bad; return; }
+    downloadIcs(ev);
+    result.className = "result"; result.textContent = "已下載 .ics，打開它就能加入手機或電腦的行事曆（含提醒設定）。";
+  };
+}
+
+/* ---------- 輸出：Google 日曆連結 / .ics ---------- */
+const compact = (date, time) => date.replace(/-/g, "") + (time ? "T" + time.replace(":", "") + "00" : "");
+function endDateTime(ev) {
+  if (ev.allDay) return { date: ymd(addDays(new Date(ev.date + "T00:00:00"), 1)) };
+  return { date: ev.date, time: ev.end };
+}
+function templateUrl(ev) {
+  const end = endDateTime(ev);
+  const dates = ev.allDay ? `${compact(ev.date)}/${compact(end.date)}`
+                          : `${compact(ev.date, ev.start)}/${compact(end.date, end.time)}`;
+  const p = new URLSearchParams({ action: "TEMPLATE", text: ev.title, dates, ctz: TZ });
+  if (ev.location) p.set("location", ev.location);
+  if (ev.notes) p.set("details", ev.notes);
+  return "https://calendar.google.com/calendar/render?" + p.toString();
+}
+function downloadIcs(ev) {
+  const esc = (s) => s.replace(/[\\;,]/g, (c) => "\\" + c).replace(/\n/g, "\\n");
+  const end = endDateTime(ev);
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const lines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//YuSiang//AI Chat//ZH-TW", "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT", `UID:${now.getTime()}-${Math.random().toString(36).slice(2)}@ai-chat`, `DTSTAMP:${stamp}`,
+    ev.allDay ? `DTSTART;VALUE=DATE:${compact(ev.date)}` : `DTSTART:${compact(ev.date, ev.start)}`,
+    ev.allDay ? `DTEND;VALUE=DATE:${compact(end.date)}` : `DTEND:${compact(end.date, end.time)}`,
+    `SUMMARY:${esc(ev.title)}`,
+    ev.location && `LOCATION:${esc(ev.location)}`,
+    ev.notes && `DESCRIPTION:${esc(ev.notes)}`,
+    "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc(ev.title)}`, `TRIGGER:-PT${ev.reminder}M`, "END:VALARM",
+    "END:VEVENT", "END:VCALENDAR",
+  ].filter(Boolean);
+  const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: `${ev.date}_${ev.title.slice(0, 20)}.ics` });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* ---------- Google 日曆 API（填了 googleClientId 才啟用） ---------- */
+let tokenClient = null, accessToken = null, tokenExpiry = 0, pending = null;
+const gcalBtn = $("gcal");
+function updateGcalBtn() {
+  const on = accessToken && Date.now() < tokenExpiry;
+  gcalBtn.textContent = on ? "✓ 已連結 Google 日曆" : "連結 Google 日曆";
+}
+if (CONFIG.googleClientId) {
+  gcalBtn.hidden = false;
+  const s = el("script", { src: "https://accounts.google.com/gsi/client", async: true });
+  s.onload = () => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.googleClientId, scope: GCAL_SCOPE,
+      callback: (resp) => {
+        const p = pending; pending = null;
+        if (resp.error) { p?.reject(new Error("未取得授權（" + resp.error + "）")); return; }
+        accessToken = resp.access_token;
+        tokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
+        updateGcalBtn(); p?.resolve(accessToken);
+      },
+      error_callback: (err) => {
+        const p = pending; pending = null;
+        p?.reject(new Error(err?.type === "popup_closed" ? "登入視窗被關閉了" : "無法開啟 Google 登入視窗（請允許彈出視窗）"));
+      },
+    });
+  };
+  document.head.appendChild(s);
+  gcalBtn.onclick = () => getToken(true).catch((e) => setStatus(e.message, "err"));
+}
+function getToken(force = false) {
+  if (!force && accessToken && Date.now() < tokenExpiry) return Promise.resolve(accessToken);
+  if (!tokenClient) return Promise.reject(new Error("Google 登入元件尚未載入，請稍候再試"));
+  return new Promise((resolve, reject) => {
+    pending = { resolve, reject };
+    tokenClient.requestAccessToken({ prompt: accessToken ? "" : "consent" });
+  });
+}
+async function insertEvent(ev) {
+  const end = endDateTime(ev);
+  const body = {
+    summary: ev.title,
+    location: ev.location || undefined,
+    description: ev.notes || undefined,
+    start: ev.allDay ? { date: ev.date } : { dateTime: `${ev.date}T${ev.start}:00`, timeZone: TZ },
+    end: ev.allDay ? { date: end.date } : { dateTime: `${end.date}T${end.time}:00`, timeZone: TZ },
+    reminders: { useDefault: false, overrides: [{ method: "popup", minutes: ev.reminder }] },
+  };
+  const send = (token) => fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let res = await send(await getToken());
+  if (res.status === 401) { accessToken = null; res = await send(await getToken(true)); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message || ("HTTP " + res.status));
+  return data.htmlLink;
+}
+
+/* ---------- 送出 / 清除 ---------- */
+async function submit() {
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text || !engine || busy) return;
+  input.value = ""; busy = true; setReady(false);
+  try { mode === "event" ? await parseEvent(text) : await chat(text); }
+  finally { busy = false; setReady(true); input.focus(); }
+}
+$("form").onsubmit = (e) => { e.preventDefault(); submit(); };
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+});
 $("clear").onclick = async () => {
   if (busy) return;
-  history.length = 0;
-  log.innerHTML = "";
+  history.length = 0; log.innerHTML = "";
   try { await engine?.resetChat(); } catch {}
-  setStatus(engine ? "對話已清除。" : statusEl.textContent);
+  if (engine) setStatus("對話已清除。");
 };
 </script>
 </body>
